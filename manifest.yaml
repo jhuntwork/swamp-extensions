@@ -1,0 +1,20 @@
+manifestVersion: 1
+name: "@jeremy/mere-pkgd-harness"
+version: "2026.07.17.1"
+description: >-
+  Local integration-test harness for the mere <-> pkgd package-publish
+  pipeline: builds both binaries, runs pkgd as a real background process
+  against scratch directories, publishes a real signed test package to it
+  over HTTP, and verifies the result — without touching the real /mere on
+  the host.
+repository: "https://codeberg.org/jhuntwork/swamp-extensions"
+models:
+  - mere_pkgd_harness.ts
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+labels:
+  - mere
+  - merelinux
+  - testing
+  - integration-test
