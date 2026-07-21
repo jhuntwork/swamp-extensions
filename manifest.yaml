@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-pkgd-harness"
-version: "2026.07.17.1"
+version: "2026.07.19.1"
 description: >-
   Local integration-test harness for the mere <-> pkgd package-publish
   pipeline: builds both binaries, runs pkgd as a real background process

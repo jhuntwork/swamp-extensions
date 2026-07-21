@@ -41,6 +41,21 @@ const VerifyResultSchema = z.object({
   version: z.string().nullable(),
 });
 
+const VerifyPropertiesResultSchema = z.object({
+  packageName: z.string(),
+  hasProperties: z.boolean(),
+  description: z.string().nullable(),
+  url: z.string().nullable(),
+  licenses: z.array(z.string()).nullable(),
+  sourceUrls: z.array(z.string()).nullable(),
+});
+
+const HashSourceResultSchema = z.object({
+  url: z.string(),
+  blake3: z.string(),
+  filename: z.string(),
+});
+
 /** Result of running a command: exit code plus captured stdout/stderr. */
 export type RunResult = { code: number; stdout: string; stderr: string };
 
@@ -147,7 +162,7 @@ type Logger = {
  */
 export const model = {
   type: "@jeremy/mere-pkgd-harness",
-  version: "2026.07.17.1",
+  version: "2026.07.19.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     "build": {
@@ -175,8 +190,78 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 10,
     },
+    "verify-properties-result": {
+      description:
+        "Result of verifying a package's properties (metadata) in repo.db",
+      schema: VerifyPropertiesResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+    "hash-source-result": {
+      description:
+        "Result of downloading a source URL and computing its blake3 hash",
+      schema: HashSourceResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
   },
   methods: {
+    hash_source: {
+      description:
+        "Download a source URL to a temp file and compute its blake3 hash via the mere binary",
+      arguments: z.object({
+        url: z.string().describe("URL to download and hash"),
+      }),
+      execute: async (
+        args: { url: string; _mustRun?: typeof mustRun },
+        context: {
+          globalArgs: z.infer<typeof GlobalArgsSchema>;
+          logger: Logger;
+          readResource: (
+            name: string,
+          ) => Promise<Record<string, unknown> | null>;
+          writeResource: (
+            specName: string,
+            name: string,
+            data: Record<string, unknown>,
+          ) => Promise<{ name: string }>;
+        },
+      ) => {
+        const doRun = args._mustRun ?? mustRun;
+        const { mereRepoPath, scratchDir } = context.globalArgs;
+
+        // Use pre-built mere if available, otherwise build path.
+        const build = await context.readResource("build") as
+          | z.infer<typeof BuildSchema>
+          | null;
+        const mereBin = build?.mereBinPath ??
+          `${mereRepoPath}/zig-out/bin/mere`;
+
+        // Derive filename from URL basename.
+        const filename = args.url.split("/").pop() ?? "source";
+        const downloadDir = `${scratchDir}/hash-downloads`;
+        await Deno.mkdir(downloadDir, { recursive: true });
+        const destPath = `${downloadDir}/${filename}`;
+
+        context.logger.info("Downloading {url}", { url: args.url });
+        await doRun("curl", ["-sL", "-o", destPath, args.url]);
+
+        context.logger.info("Computing blake3 hash for {filename}", {
+          filename,
+        });
+        const hashOutput = await doRun(mereBin, ["dev", "hash", destPath]);
+        const blake3 = hashOutput.trim();
+
+        const handle = await context.writeResource(
+          "hash-source-result",
+          `hash-${filename}`,
+          { url: args.url, blake3, filename },
+        );
+        context.logger.info("Hash computed", { url: args.url, blake3 });
+        return { dataHandles: [handle] };
+      },
+    },
+
     build: {
       description:
         "Compile mere (zig build) and pkgd (go build) from their local checkouts",
@@ -484,6 +569,99 @@ export const model = {
         context.logger.info("Verification complete", {
           packageName: args.packageName,
           foundInRepoDb: version !== "",
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+
+    verify_properties: {
+      description:
+        "Verify that a package's properties column in repo.db contains the expected recipe metadata (description, url, licenses, source_urls)",
+      arguments: z.object({
+        packageName: z.string(),
+      }),
+      execute: async (
+        args: { packageName: string; _run?: typeof run },
+        context: {
+          logger: Logger;
+          readResource: (
+            name: string,
+          ) => Promise<Record<string, unknown> | null>;
+          writeResource: (
+            specName: string,
+            name: string,
+            data: Record<string, unknown>,
+          ) => Promise<{ name: string }>;
+        },
+      ) => {
+        const doRun = args._run ?? run;
+        const instance = await context.readResource("instance") as
+          | z.infer<typeof InstanceSchema>
+          | null;
+        if (!instance) {
+          throw new Error(
+            "No running instance found — run the start method first",
+          );
+        }
+
+        context.logger.info(
+          "Verifying properties for {packageName} in published repo.db",
+          { packageName: args.packageName },
+        );
+        const repoDbPath = `${instance.outputDir}/repo.db`;
+        const result = await doRun("sqlite3", [
+          repoDbPath,
+          `select properties from packages where name = '${
+            escapeSqlString(args.packageName)
+          }' order by release desc limit 1;`,
+        ]);
+        if (result.code !== 0) {
+          throw new Error(
+            `sqlite3 query against ${repoDbPath} failed (exit ${result.code}): ${
+              result.stderr || result.stdout
+            }`,
+          );
+        }
+        const raw = result.stdout.trim();
+        let description: string | null = null;
+        let url: string | null = null;
+        let licenses: string[] | null = null;
+        let sourceUrls: string[] | null = null;
+        let hasProperties = false;
+
+        if (raw !== "") {
+          try {
+            const parsed = JSON.parse(raw);
+            hasProperties = true;
+            description = parsed.description ?? null;
+            url = parsed.url ?? null;
+            licenses = parsed.licenses ?? null;
+            sourceUrls = parsed.source_urls ?? null;
+          } catch {
+            context.logger.info(
+              "Properties column is not valid JSON: {raw}",
+              { raw },
+            );
+          }
+        }
+
+        const handle = await context.writeResource(
+          "verify-properties-result",
+          `verify-props-${args.packageName}`,
+          {
+            packageName: args.packageName,
+            hasProperties,
+            description,
+            url,
+            licenses,
+            sourceUrls,
+          },
+        );
+        context.logger.info("Properties verification complete", {
+          packageName: args.packageName,
+          hasProperties,
+          description: description ?? "(none)",
+          url: url ?? "(none)",
         });
         return { dataHandles: [handle] };
       },
