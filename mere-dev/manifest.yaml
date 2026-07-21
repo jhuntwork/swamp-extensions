@@ -1,10 +1,10 @@
 manifestVersion: 1
-name: "@jeremy/mere-shell"
+name: "@jeremy/mere-dev"
 version: "2026.07.21.2"
 description: >
-  Execute commands inside a Mere Linux shell namespace with a dedicated root
-  and a freshly-downloaded mere binary. Supports pinned or latest versions,
-  package selection, and optional host store sharing for cache efficiency.
+  Mere recipe development workflow: build recipes, hash sources, and read
+  build logs. Invokes mere directly without a shell wrapper — separate from
+  mere-shell which is for ad-hoc commands in a namespace.
 repository: "https://codeberg.org/jhuntwork/swamp-extensions"
 paths:
   base: manifest
@@ -20,8 +20,8 @@ additionalFiles:
   - LICENSE.txt
 labels:
   - mere
-  - shell
-  - namespace
+  - dev
   - build
-  - isolation
+  - recipe
+  - hash
 dependencies: []

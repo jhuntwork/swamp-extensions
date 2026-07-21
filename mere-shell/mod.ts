@@ -28,6 +28,7 @@ const ResultSchema = z.object({
   stderr: z.string(),
   durationMs: z.number(),
   mereVersion: z.string(),
+  mereRoot: z.string(),
   packages: z.array(z.string()),
   command: z.string(),
   success: z.boolean(),
@@ -174,7 +175,7 @@ function truncate(str: string, maxBytes: number): string {
 /** Model definition for executing commands inside a Mere shell namespace. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.07.20.1",
+  version: "2026.07.21.2",
   description:
     "Execute commands inside a Mere Linux shell namespace with a dedicated root and freshly-downloaded mere binary.",
   globalArguments: GlobalArgsSchema,
@@ -282,6 +283,7 @@ export const model = {
             stderr,
             durationMs,
             mereVersion: version,
+            mereRoot,
             packages,
             command: userCommand,
             success: output.code === 0,
@@ -300,12 +302,16 @@ export const model = {
           return { dataHandles: [handle] };
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
+          const repoDir_ = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
+          const mereRoot_ = globalArgs.mereRoot ||
+            `${repoDir_}/.swamp/mere-shell/root`;
           const result = {
             exitCode: -1,
             stdout: "",
             stderr: "",
             durationMs,
             mereVersion: globalArgs.mereVersion,
+            mereRoot: mereRoot_,
             packages,
             command: userCommand,
             success: false,
