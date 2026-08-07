@@ -5,6 +5,7 @@ import {
   model,
   packageNameFromArchive,
   parseBuildOutput,
+  waitForPath,
 } from "./mere_pkgd_harness.ts";
 
 Deno.test("parseBuildOutput extracts workspace and a single archive", () => {
@@ -63,6 +64,19 @@ Deno.test("escapeSqlString doubles embedded single quotes", () => {
   assertEquals(
     escapeSqlString("'; drop table packages; --"),
     "''; drop table packages; --",
+  );
+});
+
+Deno.test("waitForPath rejects when pkgd never creates its socket", async () => {
+  await assertRejects(
+    () =>
+      waitForPath("/scratch/pkgd.sock", {
+        attempts: 2,
+        delayMs: 0,
+        stat: () => Promise.reject(new Error("missing")),
+      }),
+    Error,
+    "Timed out waiting for pkgd",
   );
 });
 

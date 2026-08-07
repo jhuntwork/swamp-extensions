@@ -5,7 +5,7 @@ description: >
   Mere recipe development workflow: build recipes, hash sources, and read
   build logs. Invokes mere directly without a shell wrapper — separate from
   mere-shell which is for ad-hoc commands in a namespace.
-repository: "https://codeberg.org/jhuntwork/swamp-extensions"
+repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
   base: manifest
 models:

@@ -7,7 +7,7 @@ description: >-
   against scratch directories, publishes a real signed test package to it
   over HTTP, and verifies the result — without touching the real /mere on
   the host.
-repository: "https://codeberg.org/jhuntwork/swamp-extensions"
+repository: "https://github.com/jhuntwork/swamp-extensions"
 models:
   - mere_pkgd_harness.ts
 additionalFiles:

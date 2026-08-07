@@ -140,6 +140,35 @@ type Logger = {
   info: (msg: string, props?: Record<string, unknown>) => void;
 };
 
+/** Wait for a process-owned path to appear, failing instead of returning a false success. */
+export async function waitForPath(
+  path: string,
+  options: {
+    attempts?: number;
+    delayMs?: number;
+    stat?: (path: string) => Promise<unknown>;
+  } = {},
+): Promise<void> {
+  const attempts = options.attempts ?? 20;
+  const delayMs = options.delayMs ?? 100;
+  const stat = options.stat ?? ((value: string) => Deno.stat(value));
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await stat(path);
+      return;
+    } catch {
+      if (i + 1 < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for pkgd to create its socket at ${path}`,
+  );
+}
+
 /**
  * A local integration-test harness for the mere <-> pkgd package-publish
  * pipeline (see https://codeberg.org/merelinux).
@@ -387,14 +416,17 @@ export const model = {
         const child = command.spawn();
         child.unref();
 
-        // Give it a moment to create the socket before anything tries to use it.
-        for (let i = 0; i < 20; i++) {
+        // Do not record an instance until pkgd is reachable. If startup fails,
+        // terminate the child so a failed attempt cannot leave an orphan.
+        try {
+          await waitForPath(socketPath);
+        } catch (error) {
           try {
-            await Deno.stat(socketPath);
-            break;
+            Deno.kill(child.pid, "SIGTERM");
           } catch {
-            await new Promise((r) => setTimeout(r, 100));
+            // The child may already have exited.
           }
+          throw error;
         }
 
         const handle = await context.writeResource("instance", "instance", {
