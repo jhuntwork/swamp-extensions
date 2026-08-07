@@ -45,6 +45,7 @@ swamp model method run mere-dev devLog --arg recipe="dinit" --arg tail=50
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `mereVersion` | `"latest"` | Mere version to use. Resolves from Codeberg releases API. |
+| `mereBinaryPath` | `""` | Optional existing Mere binary; when set, skips download and runs that exact binary. |
 | `mereRoot` | auto | Dedicated root path. Defaults to `$SWAMP_REPO_DIR/.swamp/mere-dev/root`. |
 
 ## How it works

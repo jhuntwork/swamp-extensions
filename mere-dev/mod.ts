@@ -13,7 +13,10 @@ const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
 
 const GlobalArgsSchema = z.object({
   mereVersion: z.string().default("latest").describe(
-    "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.15.2'.",
+    "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.15.2'. Ignored when mereBinaryPath is set.",
+  ),
+  mereBinaryPath: z.string().default("").describe(
+    "Optional path to an existing mere binary. When set, skips download and runs this exact binary (useful for local builds).",
   ),
   mereRoot: z.string().default("").describe(
     "Dedicated root path for the mere tree. Empty = auto ($SWAMP_REPO_DIR/.swamp/mere-dev/root).",
@@ -151,23 +154,38 @@ function truncate(str: string, maxBytes: number): string {
 
 /** Resolve mereRoot and ensure infrastructure is ready. Returns {mereRoot, mereBinary, version}. */
 async function setup(
-  globalArgs: { mereVersion: string; mereRoot: string },
+  globalArgs: { mereVersion: string; mereBinaryPath: string; mereRoot: string },
   // deno-lint-ignore no-explicit-any
   logger: any,
 ): Promise<{ mereRoot: string; mereBinary: string; version: string }> {
   logger.info("Resolving mere version: {version}", {
     version: globalArgs.mereVersion,
   });
-  const version = await resolveVersion(globalArgs.mereVersion);
-  logger.info("Using mere {version}", { version });
-
   const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
-  const cacheDir = `${repoDir}/.swamp/mere-dev/bin`;
   const mereRoot = globalArgs.mereRoot ||
     `${repoDir}/.swamp/mere-dev/root`;
 
-  logger.info("Ensuring mere binary at {cacheDir}", { cacheDir });
-  const mereBinary = await ensureBinary(version, cacheDir);
+  let mereBinary: string;
+  let version: string;
+  if (globalArgs.mereBinaryPath) {
+    try {
+      const stat = await Deno.stat(globalArgs.mereBinaryPath);
+      if (!stat.isFile) throw new Error("path is not a regular file");
+    } catch (error) {
+      throw new Error(
+        `Configured mereBinaryPath is not usable: ${globalArgs.mereBinaryPath}: ${error}`,
+      );
+    }
+    mereBinary = globalArgs.mereBinaryPath;
+    version = "local";
+    logger.info("Using local mere binary: {path}", { path: mereBinary });
+  } else {
+    version = await resolveVersion(globalArgs.mereVersion);
+    logger.info("Using mere {version}", { version });
+    const cacheDir = `${repoDir}/.swamp/mere-dev/bin`;
+    logger.info("Ensuring mere binary at {cacheDir}", { cacheDir });
+    mereBinary = await ensureBinary(version, cacheDir);
+  }
 
   logger.info("Ensuring mere root at {root}", { root: mereRoot });
   await ensureRoot(mereRoot, mereBinary);
@@ -178,10 +196,10 @@ async function setup(
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.07.21.2",
+  version: "2026.08.07.2",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
-    "Invokes mere directly without a shell wrapper.",
+    "Invokes mere directly without a shell wrapper and supports local binary overrides.",
   globalArguments: GlobalArgsSchema,
   resources: {
     "build-result": {
