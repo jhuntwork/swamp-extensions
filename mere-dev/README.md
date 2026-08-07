@@ -25,7 +25,7 @@ swamp model method run mere-dev build \
 
 ### hash
 
-Compute the blake3 hash of a local file or URL. Downloads URLs automatically.
+`hash` returns the canonical BLAKE3 digest separately from the source path. It accepts either the normal `digest  path` output or digest-only output from `mere dev hash`.
 
 ```sh
 swamp model method run mere-dev hash \
@@ -40,6 +40,14 @@ Read the most recent build log from the dev workspace. Useful after a failed bui
 swamp model method run mere-dev devLog --arg recipe="dinit" --arg tail=50
 ```
 
+`mereBinaryPath` is useful when the exact Mere version is a local build that has not been released yet:
+
+```sh
+swamp model create @jeremy/mere-dev mere-local \
+  --global-arg mereVersion=0.18.6 \
+  --global-arg mereBinaryPath=/path/to/mere \
+  --global-arg mereRoot=/tmp/mere-dev-root
+```
 ## Global arguments
 
 | Argument | Default | Description |

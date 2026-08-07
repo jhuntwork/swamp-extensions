@@ -193,10 +193,21 @@ async function setup(
   return { mereRoot, mereBinary, version };
 }
 
+/** Extract the canonical 64-character BLAKE3 digest from `mere dev hash` output. */
+export function parseBlake3Output(output: string): string {
+  const match = output.match(/(?:^|\n)\s*([0-9a-f]{64})(?:\s|$)/i);
+  if (!match) {
+    throw new Error(
+      `Could not parse a BLAKE3 digest from mere output: ${output}`,
+    );
+  }
+  return match[1].toLowerCase();
+}
+
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.07.2",
+  version: "2026.08.07.3",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -376,7 +387,9 @@ export const model = {
             );
           }
 
-          const blake3 = new TextDecoder().decode(hashOutput.stdout).trim();
+          const blake3 = parseBlake3Output(
+            new TextDecoder().decode(hashOutput.stdout),
+          );
 
           const result = {
             blake3,
