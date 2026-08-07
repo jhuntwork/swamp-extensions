@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-shell"
-version: "2026.07.21.2"
+version: "2026.08.07.1"
 description: >
   Execute commands inside a Mere Linux shell namespace with a dedicated root
   and a freshly-downloaded mere binary. Supports pinned or latest versions,
