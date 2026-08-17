@@ -51,6 +51,38 @@ const DevLogResultSchema = z.object({
   error: z.string().optional(),
 });
 
+const SigningKeyStatusSchema = z.object({
+  ready: z.boolean(),
+  generated: z.boolean(),
+  keyPath: z.string(),
+  command: z.string(),
+  error: z.string().optional(),
+});
+
+const RecipeCommandResultSchema = z.object({
+  exitCode: z.number(),
+  stdout: z.string(),
+  stderr: z.string(),
+  durationMs: z.number(),
+  mereVersion: z.string(),
+  mereRoot: z.string(),
+  recipePath: z.string(),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+const ImportResultSchema = z.object({
+  exitCode: z.number(),
+  stdout: z.string(),
+  stderr: z.string(),
+  durationMs: z.number(),
+  mereVersion: z.string(),
+  mereRoot: z.string(),
+  repository: z.string(),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
 /** Resolve the actual mere version when "latest" is requested. */
 async function resolveVersion(version: string): Promise<string> {
   if (version !== "latest") return version;
@@ -143,6 +175,50 @@ async function ensureRoot(mereRoot: string, mereBinary: string): Promise<void> {
   }
 }
 
+/** Return Mere's standard per-user development signing-key path. */
+export function developmentSigningKeyPath(home: string): string {
+  return `${home}/.mere/keys/mere.key`;
+}
+
+function keyGenerationCommand(mereBinary: string): string {
+  return `${mereBinary} dev key generate`;
+}
+
+async function signingKeyStatus(): Promise<
+  { ready: boolean; keyPath: string }
+> {
+  const home = Deno.env.get("HOME");
+  if (!home) {
+    throw new Error(
+      "Cannot locate the development signing key because HOME is unset",
+    );
+  }
+
+  const keyPath = developmentSigningKeyPath(home);
+  try {
+    const stat = await Deno.stat(keyPath);
+    return { ready: stat.isFile, keyPath };
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return { ready: false, keyPath };
+    throw new Error(
+      `Cannot inspect development signing key ${keyPath}: ${error}`,
+    );
+  }
+}
+
+async function requireDevelopmentSigningKey(
+  mereBinary: string,
+): Promise<string> {
+  const status = await signingKeyStatus();
+  if (status.ready) return status.keyPath;
+  throw new Error(
+    `Development signing key is missing: ${status.keyPath}. ` +
+      `Create it explicitly with \`${
+        keyGenerationCommand(mereBinary)
+      }\`, then retry the build.`,
+  );
+}
+
 /** Truncate a string to maxBytes (UTF-8 aware). */
 function truncate(str: string, maxBytes: number): string {
   const encoder = new TextEncoder();
@@ -207,7 +283,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.07.3",
+  version: "2026.08.07.5",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -231,8 +307,163 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 10,
     },
+    "signing-key-status": {
+      description: "Development signing-key readiness",
+      schema: SigningKeyStatusSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+    "validation-result": {
+      description: "Recipe validation result",
+      schema: RecipeCommandResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    "import-result": {
+      description: "Development repository import result",
+      schema: ImportResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
   },
   methods: {
+    validate: {
+      description:
+        "Validate a recipe using `mere dev validate` without building it.",
+      arguments: z.object({
+        recipe: z.string().describe(
+          "Absolute path to the recipe.kdl file to validate",
+        ),
+      }),
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: Record<string, unknown>, context: any) => {
+        const { recipe } = args as { recipe: string };
+        const globalArgs = context.globalArgs;
+        const start = performance.now();
+
+        try {
+          const { mereRoot, mereBinary, version } = await setup(
+            globalArgs,
+            context.logger,
+          );
+          const output = await new Deno.Command(mereBinary, {
+            args: ["--root", mereRoot, "dev", "validate", recipe],
+            stdout: "piped",
+            stderr: "piped",
+          }).output();
+          const result = {
+            exitCode: output.code,
+            stdout: truncate(
+              new TextDecoder().decode(output.stdout),
+              MAX_OUTPUT_BYTES,
+            ),
+            stderr: truncate(
+              new TextDecoder().decode(output.stderr),
+              MAX_OUTPUT_BYTES,
+            ),
+            durationMs: Math.round(performance.now() - start),
+            mereVersion: version,
+            mereRoot,
+            recipePath: recipe,
+            success: output.success,
+          };
+          const handle = await context.writeResource(
+            "validation-result",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        } catch (err) {
+          const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
+          const result = {
+            exitCode: -1,
+            stdout: "",
+            stderr: "",
+            durationMs: Math.round(performance.now() - start),
+            mereVersion: globalArgs.mereVersion,
+            mereRoot: globalArgs.mereRoot || `${repoDir}/.swamp/mere-dev/root`,
+            recipePath: recipe,
+            success: false,
+            error: String(err),
+          };
+          const handle = await context.writeResource(
+            "validation-result",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+      },
+    },
+    importOutputs: {
+      description:
+        "Import the dedicated root's built package outputs into a named local development repository.",
+      arguments: z.object({
+        repository: z.string().default("local").describe(
+          "Development repository name under the dedicated Mere root",
+        ),
+      }),
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: Record<string, unknown>, context: any) => {
+        const { repository } = args as { repository: string };
+        const globalArgs = context.globalArgs;
+        const start = performance.now();
+
+        try {
+          const { mereRoot, mereBinary, version } = await setup(
+            globalArgs,
+            context.logger,
+          );
+          await requireDevelopmentSigningKey(mereBinary);
+          const output = await new Deno.Command(mereBinary, {
+            args: ["--root", mereRoot, "dev", "import", repository],
+            stdout: "piped",
+            stderr: "piped",
+          }).output();
+          const result = {
+            exitCode: output.code,
+            stdout: truncate(
+              new TextDecoder().decode(output.stdout),
+              MAX_OUTPUT_BYTES,
+            ),
+            stderr: truncate(
+              new TextDecoder().decode(output.stderr),
+              MAX_OUTPUT_BYTES,
+            ),
+            durationMs: Math.round(performance.now() - start),
+            mereVersion: version,
+            mereRoot,
+            repository,
+            success: output.success,
+          };
+          const handle = await context.writeResource(
+            "import-result",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        } catch (err) {
+          const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
+          const result = {
+            exitCode: -1,
+            stdout: "",
+            stderr: "",
+            durationMs: Math.round(performance.now() - start),
+            mereVersion: globalArgs.mereVersion,
+            mereRoot: globalArgs.mereRoot || `${repoDir}/.swamp/mere-dev/root`,
+            repository,
+            success: false,
+            error: String(err),
+          };
+          const handle = await context.writeResource(
+            "import-result",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+      },
+    },
     build: {
       description:
         "Build a recipe using `mere dev build`. Manages its own namespace — do not wrap in mere shell.",
@@ -252,6 +483,8 @@ export const model = {
             globalArgs,
             context.logger,
           );
+
+          await requireDevelopmentSigningKey(mereBinary);
 
           const buildArgs = ["--root", mereRoot, "dev", "build", recipe];
           context.logger.info("Executing: mere {args}", {
@@ -320,6 +553,116 @@ export const model = {
 
           const handle = await context.writeResource(
             "build-result",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+      },
+    },
+    keyStatus: {
+      description:
+        "Check whether the standard development signing key exists. Does not create or expose private key material.",
+      arguments: z.object({}),
+      // deno-lint-ignore no-explicit-any
+      execute: async (_args: Record<string, unknown>, context: any) => {
+        const globalArgs = context.globalArgs;
+
+        try {
+          const { mereBinary } = await setup(globalArgs, context.logger);
+          const status = await signingKeyStatus();
+          const result = {
+            ...status,
+            generated: false,
+            command: keyGenerationCommand(mereBinary),
+          };
+          const handle = await context.writeResource(
+            "signing-key-status",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        } catch (err) {
+          const home = Deno.env.get("HOME") || "~";
+          const result = {
+            ready: false,
+            generated: false,
+            keyPath: developmentSigningKeyPath(home),
+            command: "mere dev key generate",
+            error: String(err),
+          };
+          const handle = await context.writeResource(
+            "signing-key-status",
+            "current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+      },
+    },
+    generateSigningKey: {
+      description:
+        "Explicitly generate the standard Ed25519 development signing key when absent. This writes private key material to ~/.mere/keys/mere.key.",
+      arguments: z.object({}),
+      // deno-lint-ignore no-explicit-any
+      execute: async (_args: Record<string, unknown>, context: any) => {
+        const globalArgs = context.globalArgs;
+        try {
+          const { mereBinary } = await setup(globalArgs, context.logger);
+          const before = await signingKeyStatus();
+          if (before.ready) {
+            const handle = await context.writeResource(
+              "signing-key-status",
+              "current",
+              {
+                ...before,
+                generated: false,
+                command: keyGenerationCommand(mereBinary),
+              },
+            );
+            return { dataHandles: [handle] };
+          }
+
+          const output = await new Deno.Command(mereBinary, {
+            args: ["dev", "key", "generate"],
+            stdout: "piped",
+            stderr: "piped",
+          }).output();
+          if (!output.success) {
+            throw new Error(
+              `Development signing-key generation failed: ${
+                new TextDecoder().decode(output.stderr)
+              }`,
+            );
+          }
+
+          const after = await signingKeyStatus();
+          if (!after.ready) {
+            throw new Error(
+              `Development signing-key generation reported success but did not create ${after.keyPath}`,
+            );
+          }
+          const handle = await context.writeResource(
+            "signing-key-status",
+            "current",
+            {
+              ...after,
+              generated: true,
+              command: keyGenerationCommand(mereBinary),
+            },
+          );
+          return { dataHandles: [handle] };
+        } catch (err) {
+          const home = Deno.env.get("HOME") || "~";
+          const result = {
+            ready: false,
+            generated: false,
+            keyPath: developmentSigningKeyPath(home),
+            command: "mere dev key generate",
+            error: String(err),
+          };
+          const handle = await context.writeResource(
+            "signing-key-status",
             "current",
             result,
           );
