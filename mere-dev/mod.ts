@@ -283,11 +283,23 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.07.5",
+  version: "2026.08.17.1",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
   globalArguments: GlobalArgsSchema,
+
+  upgrades: [
+    {
+      toVersion: "2026.08.17.1",
+      description:
+        "Add explicit signing-key readiness and typed recipe validation/import operations. No globalArguments changes.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+  ],
+
   resources: {
     "build-result": {
       description: "Recipe build result with exit code and output",
