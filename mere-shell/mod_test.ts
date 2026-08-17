@@ -1,8 +1,10 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { parseSHA256SUMS, runCommand, sha256Hex } from "./mod.ts";
+import { parseSHA256SUMS, runCommand, sha256Hex, truncate } from "./mod.ts";
 
 Deno.test("parseSHA256SUMS finds an architecture-specific digest", () => {
-  const sums = `${"a".repeat(64)}  mere-0.18.2-linux-x86_64\n${"b".repeat(64)} *mere-0.18.2-linux-aarch64\n`;
+  const sums = `${"a".repeat(64)}  mere-0.18.2-linux-x86_64\n${
+    "b".repeat(64)
+  } *mere-0.18.2-linux-aarch64\n`;
   assertEquals(
     parseSHA256SUMS(sums, "mere-0.18.2-linux-aarch64"),
     "b".repeat(64),
@@ -24,13 +26,24 @@ Deno.test("sha256Hex produces the canonical digest", async () => {
   );
 });
 
+Deno.test("truncate declares whether output was capped", () => {
+  assertEquals(truncate("abc", 3), { text: "abc", truncated: false });
+  assertEquals(truncate("abcd", 3), {
+    text: "abc\n... [truncated]",
+    truncated: true,
+  });
+});
+
 Deno.test({
   name: "runCommand aborts a controlled child process",
   permissions: { run: true },
   async fn() {
     const controller = new AbortController();
     const pending = runCommand(Deno.execPath(), {
-      args: ["eval", "await new Promise((resolve) => setTimeout(resolve, 10_000))"],
+      args: [
+        "eval",
+        "await new Promise((resolve) => setTimeout(resolve, 10_000))",
+      ],
       stdout: "piped",
       stderr: "piped",
     }, controller.signal);

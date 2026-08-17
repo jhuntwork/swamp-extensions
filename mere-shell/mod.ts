@@ -29,6 +29,7 @@ const ResultSchema = z.object({
   exitCode: z.number(),
   stdout: z.string(),
   stderr: z.string(),
+  truncated: z.boolean(),
   durationMs: z.number(),
   mereVersion: z.string(),
   mereRoot: z.string(),
@@ -79,8 +80,14 @@ async function resolveVersion(
   if (!res.ok) {
     throw new Error(`Failed to fetch latest mere version: ${res.status}`);
   }
-  const data = await res.json();
-  const tag = data.tag_name as string;
+  const data: unknown = await res.json();
+  if (
+    typeof data !== "object" || data === null ||
+    typeof (data as { tag_name?: unknown }).tag_name !== "string"
+  ) {
+    throw new Error("Latest Mere release response does not contain tag_name");
+  }
+  const tag = (data as { tag_name: string }).tag_name;
   return tag.startsWith("v") ? tag.slice(1) : tag;
 }
 
@@ -226,12 +233,18 @@ async function writeProfileKdl(
   return profilePath;
 }
 
-function truncate(str: string, maxBytes: number): string {
+export function truncate(
+  str: string,
+  maxBytes: number,
+): { text: string; truncated: boolean } {
   const bytes = new TextEncoder().encode(str);
-  if (bytes.length <= maxBytes) return str;
-  return new TextDecoder("utf-8", { fatal: false }).decode(
-    bytes.slice(0, maxBytes),
-  ) + "\n... [truncated]";
+  if (bytes.length <= maxBytes) return { text: str, truncated: false };
+  return {
+    text: new TextDecoder("utf-8", { fatal: false }).decode(
+      bytes.slice(0, maxBytes),
+    ) + "\n... [truncated]",
+    truncated: true,
+  };
 }
 
 /** Swamp model definition for verified, cancellable Mere shell execution. */
@@ -326,16 +339,19 @@ export const model = {
             stderr: "piped",
             cwd: workdir,
           }, context.signal);
+          const stdout = truncate(
+            new TextDecoder().decode(output.stdout),
+            MAX_OUTPUT_BYTES,
+          );
+          const stderr = truncate(
+            new TextDecoder().decode(output.stderr),
+            MAX_OUTPUT_BYTES,
+          );
           const result = {
             exitCode: output.code,
-            stdout: truncate(
-              new TextDecoder().decode(output.stdout),
-              MAX_OUTPUT_BYTES,
-            ),
-            stderr: truncate(
-              new TextDecoder().decode(output.stderr),
-              MAX_OUTPUT_BYTES,
-            ),
+            stdout: stdout.text,
+            stderr: stderr.text,
+            truncated: stdout.truncated || stderr.truncated,
             durationMs: Math.round(performance.now() - start),
             mereVersion: version,
             mereRoot,
@@ -343,6 +359,11 @@ export const model = {
             argv,
             success: output.success,
           };
+          context.logger.info("Mere shell command completed", {
+            exitCode: result.exitCode,
+            durationMs: result.durationMs,
+            success: result.success,
+          });
           return {
             dataHandles: [
               await context.writeResource("result", "current", result),
@@ -353,6 +374,7 @@ export const model = {
             exitCode: -1,
             stdout: "",
             stderr: "",
+            truncated: false,
             durationMs: Math.round(performance.now() - start),
             mereVersion: globalArgs.mereVersion,
             mereRoot,
@@ -361,6 +383,9 @@ export const model = {
             success: false,
             error: String(error),
           };
+          context.logger.error("Mere shell command failed", {
+            error: result.error,
+          });
           return {
             dataHandles: [
               await context.writeResource("result", "current", result),
