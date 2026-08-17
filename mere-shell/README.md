@@ -37,6 +37,25 @@ swamp model method run my-mere-shell run \
   --input 'workdir=/home/user/project'
 ```
 
+## Upgrading from command strings
+
+Version `2026.08.17.1` replaces the required `command` string with exact
+`argv`. This is intentional: a string cannot preserve argument boundaries and
+made quoted arguments, paths containing spaces, and cancellation behavior
+ambiguous. Replace, for example:
+
+```text
+command="zig build test --summary all"
+```
+
+with:
+
+```text
+argv=["zig", "build", "test", "--summary", "all"]
+```
+
+Older callers that continue to send `command` will be rejected by this version.
+
 ## Output
 
 The `result` resource contains:
