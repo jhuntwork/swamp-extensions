@@ -1,7 +1,14 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { parseBlake3Output } from "./mod.ts";
+import { developmentSigningKeyPath, parseBlake3Output } from "./mod.ts";
 
 const digest = "a".repeat(64);
+
+Deno.test("developmentSigningKeyPath uses Mere's standard per-user location", () => {
+  assertEquals(
+    developmentSigningKeyPath("/home/developer"),
+    "/home/developer/.mere/keys/mere.key",
+  );
+});
 
 Deno.test("parseBlake3Output extracts digest from digest-plus-path output", () => {
   assertEquals(

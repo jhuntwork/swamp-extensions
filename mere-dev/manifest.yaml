@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.08.07.3"
+version: "2026.08.17.1"
 description: >
   Mere recipe development workflow: build recipes, hash sources, and read
   build logs. Invokes mere directly without a shell wrapper — separate from
