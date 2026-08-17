@@ -11,6 +11,15 @@ const CONFIG_URL = "https://pkgs.merelinux.org/config.kdl";
 const KEY_URL = "https://pkgs.merelinux.org/mere.pub";
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
 
+/** Run one subprocess and bind it to the model cancellation signal. */
+export async function runCommand(
+  command: string,
+  options: Deno.CommandOptions,
+  signal?: AbortSignal,
+): Promise<Deno.CommandOutput> {
+  return await new Deno.Command(command, { ...options, signal }).output();
+}
+
 const GlobalArgsSchema = z.object({
   mereVersion: z.string().default("latest").describe(
     "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.15.2'. Ignored when mereBinaryPath is set.",
@@ -130,7 +139,11 @@ async function ensureBinary(
 }
 
 /** Ensure the dedicated mere root is initialized with config and keys. */
-async function ensureRoot(mereRoot: string, mereBinary: string): Promise<void> {
+async function ensureRoot(
+  mereRoot: string,
+  mereBinary: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const mereDir = `${mereRoot}/mere`;
   const storeDir = `${mereDir}/store`;
   const configPath = `${mereDir}/config.kdl`;
@@ -141,10 +154,9 @@ async function ensureRoot(mereRoot: string, mereBinary: string): Promise<void> {
   try {
     await Deno.stat(storeDir);
   } catch {
-    const cmd = new Deno.Command(mereBinary, {
+    const output = await runCommand(mereBinary, {
       args: ["--root", mereRoot, "store", "init"],
-    });
-    const output = await cmd.output();
+    }, signal);
     if (!output.success) {
       const stderr = new TextDecoder().decode(output.stderr);
       throw new Error(`mere store init failed: ${stderr}`);
@@ -233,6 +245,7 @@ async function setup(
   globalArgs: { mereVersion: string; mereBinaryPath: string; mereRoot: string },
   // deno-lint-ignore no-explicit-any
   logger: any,
+  signal?: AbortSignal,
 ): Promise<{ mereRoot: string; mereBinary: string; version: string }> {
   logger.info("Resolving mere version: {version}", {
     version: globalArgs.mereVersion,
@@ -264,7 +277,7 @@ async function setup(
   }
 
   logger.info("Ensuring mere root at {root}", { root: mereRoot });
-  await ensureRoot(mereRoot, mereBinary);
+  await ensureRoot(mereRoot, mereBinary, signal);
 
   return { mereRoot, mereBinary, version };
 }
@@ -283,7 +296,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.17.1",
+  version: "2026.08.17.2",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -294,6 +307,14 @@ export const model = {
       toVersion: "2026.08.17.1",
       description:
         "Add explicit signing-key readiness and typed recipe validation/import operations. No globalArguments changes.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.08.17.2",
+      description:
+        "Propagate model cancellation into every Mere subprocess launch.",
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
@@ -357,12 +378,13 @@ export const model = {
           const { mereRoot, mereBinary, version } = await setup(
             globalArgs,
             context.logger,
+            context.signal,
           );
-          const output = await new Deno.Command(mereBinary, {
+          const output = await runCommand(mereBinary, {
             args: ["--root", mereRoot, "dev", "validate", recipe],
             stdout: "piped",
             stderr: "piped",
-          }).output();
+          }, context.signal);
           const result = {
             exitCode: output.code,
             stdout: truncate(
@@ -425,13 +447,14 @@ export const model = {
           const { mereRoot, mereBinary, version } = await setup(
             globalArgs,
             context.logger,
+            context.signal,
           );
           await requireDevelopmentSigningKey(mereBinary);
-          const output = await new Deno.Command(mereBinary, {
+          const output = await runCommand(mereBinary, {
             args: ["--root", mereRoot, "dev", "import", repository],
             stdout: "piped",
             stderr: "piped",
-          }).output();
+          }, context.signal);
           const result = {
             exitCode: output.code,
             stdout: truncate(
@@ -494,6 +517,7 @@ export const model = {
           const { mereRoot, mereBinary, version } = await setup(
             globalArgs,
             context.logger,
+            context.signal,
           );
 
           await requireDevelopmentSigningKey(mereBinary);
@@ -503,12 +527,11 @@ export const model = {
             args: buildArgs.join(" "),
           });
 
-          const cmd = new Deno.Command(mereBinary, {
+          const output = await runCommand(mereBinary, {
             args: buildArgs,
             stdout: "piped",
             stderr: "piped",
-          });
-          const output = await cmd.output();
+          }, context.signal);
           const durationMs = Math.round(performance.now() - start);
 
           const stdout = truncate(
@@ -581,7 +604,11 @@ export const model = {
         const globalArgs = context.globalArgs;
 
         try {
-          const { mereBinary } = await setup(globalArgs, context.logger);
+          const { mereBinary } = await setup(
+            globalArgs,
+            context.logger,
+            context.signal,
+          );
           const status = await signingKeyStatus();
           const result = {
             ...status,
@@ -620,7 +647,11 @@ export const model = {
       execute: async (_args: Record<string, unknown>, context: any) => {
         const globalArgs = context.globalArgs;
         try {
-          const { mereBinary } = await setup(globalArgs, context.logger);
+          const { mereBinary } = await setup(
+            globalArgs,
+            context.logger,
+            context.signal,
+          );
           const before = await signingKeyStatus();
           if (before.ready) {
             const handle = await context.writeResource(
@@ -635,11 +666,11 @@ export const model = {
             return { dataHandles: [handle] };
           }
 
-          const output = await new Deno.Command(mereBinary, {
+          const output = await runCommand(mereBinary, {
             args: ["dev", "key", "generate"],
             stdout: "piped",
             stderr: "piped",
-          }).output();
+          }, context.signal);
           if (!output.success) {
             throw new Error(
               `Development signing-key generation failed: ${
@@ -700,6 +731,7 @@ export const model = {
           const { mereRoot, mereBinary } = await setup(
             globalArgs,
             context.logger,
+            context.signal,
           );
 
           let filePath = source;
@@ -713,10 +745,9 @@ export const model = {
             filePath = `${downloadDir}/${filename}`;
 
             context.logger.info("Downloading {url}", { url: source });
-            const dlCmd = new Deno.Command("curl", {
+            const dlOutput = await runCommand("curl", {
               args: ["-sL", "-o", filePath, source],
-            });
-            const dlOutput = await dlCmd.output();
+            }, context.signal);
             if (!dlOutput.success) {
               throw new Error(
                 `Download failed: ${new TextDecoder().decode(dlOutput.stderr)}`,
@@ -727,12 +758,11 @@ export const model = {
           context.logger.info("Computing blake3 hash for {path}", {
             path: filePath,
           });
-          const hashCmd = new Deno.Command(mereBinary, {
+          const hashOutput = await runCommand(mereBinary, {
             args: ["dev", "hash", filePath],
             stdout: "piped",
             stderr: "piped",
-          });
-          const hashOutput = await hashCmd.output();
+          }, context.signal);
 
           if (!hashOutput.success) {
             throw new Error(
