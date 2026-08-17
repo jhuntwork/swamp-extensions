@@ -1,5 +1,9 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { developmentSigningKeyPath, parseBlake3Output } from "./mod.ts";
+import {
+  developmentSigningKeyPath,
+  parseBlake3Output,
+  runCommand,
+} from "./mod.ts";
 
 const digest = "a".repeat(64);
 
@@ -35,4 +39,23 @@ Deno.test("parseBlake3Output rejects truncated digests", () => {
     Error,
     "Could not parse a BLAKE3 digest",
   );
+});
+
+Deno.test({
+  name: "runCommand terminates a controlled child when its signal aborts",
+  permissions: { run: true },
+  async fn() {
+    const controller = new AbortController();
+    const pending = runCommand(Deno.execPath(), {
+      args: [
+        "eval",
+        "await new Promise((resolve) => setTimeout(resolve, 10_000))",
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    }, controller.signal);
+    setTimeout(() => controller.abort(), 25);
+    const output = await pending;
+    assertEquals(output.success, false);
+  },
 });

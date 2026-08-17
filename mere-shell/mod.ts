@@ -1,5 +1,5 @@
-// ABOUTME: Executes commands inside a Mere Linux shell namespace.
-// ABOUTME: Downloads a fresh mere binary, operates in a dedicated root, captures structured output.
+// ABOUTME: Executes typed commands inside a Mere Linux shell namespace.
+// ABOUTME: Verifies downloaded Mere binaries and propagates model cancellation.
 // deno-lint-ignore-file no-import-prefix
 import { z } from "npm:zod@4";
 
@@ -8,17 +8,20 @@ const CODEBERG_API =
 const DOWNLOAD_BASE = "https://codeberg.org/merelinux/mere/releases/download";
 const CONFIG_URL = "https://pkgs.merelinux.org/config.kdl";
 const KEY_URL = "https://pkgs.merelinux.org/mere.pub";
-const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
+const MAX_OUTPUT_BYTES = 1024 * 1024;
 
 const GlobalArgsSchema = z.object({
   mereVersion: z.string().default("latest").describe(
-    "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.15.2'.",
+    "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.18.2'.",
+  ),
+  mereSHA256: z.string().default("").describe(
+    "Optional expected SHA-256 for the selected Mere binary. When empty, use the release SHA256SUMS asset.",
   ),
   mereRoot: z.string().default("").describe(
     "Dedicated root path for the mere tree. Empty = auto ($SWAMP_REPO_DIR/.swamp/mere-shell/root).",
   ),
   useHostStore: z.boolean().default(false).describe(
-    "Symlink host /mere/store into the dedicated root for package cache hits.",
+    "If true, symlinks host /mere/store into the dedicated root for cache hits.",
   ),
 });
 
@@ -26,159 +29,242 @@ const ResultSchema = z.object({
   exitCode: z.number(),
   stdout: z.string(),
   stderr: z.string(),
+  truncated: z.boolean(),
   durationMs: z.number(),
   mereVersion: z.string(),
   mereRoot: z.string(),
   packages: z.array(z.string()),
-  command: z.string(),
+  argv: z.array(z.string()),
   success: z.boolean(),
   error: z.string().optional(),
 });
 
-/** Resolve the actual mere version when "latest" is requested. */
-async function resolveVersion(version: string): Promise<string> {
+/** Run one subprocess and bind it to the model cancellation signal. */
+export async function runCommand(
+  command: string,
+  options: Deno.CommandOptions,
+  signal?: AbortSignal,
+): Promise<Deno.CommandOutput> {
+  return await new Deno.Command(command, { ...options, signal }).output();
+}
+
+/** Parse the SHA-256 for one release binary from a SHA256SUMS manifest. */
+export function parseSHA256SUMS(sums: string, binaryName: string): string {
+  for (const line of sums.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 2) continue;
+    if (fields[1].replace(/^\*/, "") !== binaryName) continue;
+    if (!/^[a-fA-F0-9]{64}$/.test(fields[0])) continue;
+    return fields[0].toLowerCase();
+  }
+  throw new Error(`SHA256SUMS does not contain a digest for ${binaryName}`);
+}
+
+/** Calculate a lowercase SHA-256 digest for binary content. */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const input = new Uint8Array(bytes.byteLength);
+  input.set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", input);
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function resolveVersion(
+  version: string,
+  signal?: AbortSignal,
+): Promise<string> {
   if (version !== "latest") return version;
-  const res = await fetch(CODEBERG_API);
+  const res = await fetch(CODEBERG_API, { signal });
   if (!res.ok) {
     throw new Error(`Failed to fetch latest mere version: ${res.status}`);
   }
-  const data = await res.json();
-  const tag = data.tag_name as string;
+  const data: unknown = await res.json();
+  if (
+    typeof data !== "object" || data === null ||
+    typeof (data as { tag_name?: unknown }).tag_name !== "string"
+  ) {
+    throw new Error("Latest Mere release response does not contain tag_name");
+  }
+  const tag = (data as { tag_name: string }).tag_name;
   return tag.startsWith("v") ? tag.slice(1) : tag;
 }
 
-/** Get the platform architecture string for mere binary downloads. */
 function getArch(): string {
   return Deno.build.arch;
 }
 
-/** Ensure the mere binary is downloaded and executable. Returns path to binary. */
+async function publishedDigest(
+  version: string,
+  binaryName: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(`${DOWNLOAD_BASE}/v${version}/SHA256SUMS`, {
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch Mere SHA256SUMS for ${version}: ${response.status}`,
+    );
+  }
+  return parseSHA256SUMS(await response.text(), binaryName);
+}
+
 async function ensureBinary(
   version: string,
   cacheDir: string,
+  configuredDigest: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const arch = getArch();
   const binaryName = `mere-${version}-linux-${arch}`;
   const binaryPath = `${cacheDir}/${binaryName}`;
+  const expected = configuredDigest ||
+    await publishedDigest(version, binaryName, signal);
+  if (!/^[a-fA-F0-9]{64}$/.test(expected)) {
+    throw new Error(
+      "Configured mereSHA256 must be a 64-character hexadecimal SHA-256 digest",
+    );
+  }
 
   try {
-    const stat = await Deno.stat(binaryPath);
-    if (stat.isFile) return binaryPath;
-  } catch {
-    // Not cached yet — download
+    const cached = await Deno.readFile(binaryPath);
+    if ((await sha256Hex(cached)) === expected.toLowerCase()) return binaryPath;
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
 
   await Deno.mkdir(cacheDir, { recursive: true });
   const url = `${DOWNLOAD_BASE}/v${version}/${binaryName}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(
       `Failed to download mere ${version} for ${arch}: ${res.status} from ${url}`,
     );
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
+  const actual = await sha256Hex(bytes);
+  if (actual !== expected.toLowerCase()) {
+    throw new Error(
+      `Mere binary checksum mismatch for ${binaryName}: got ${actual}, want ${expected}`,
+    );
+  }
   await Deno.writeFile(binaryPath, bytes, { mode: 0o755 });
   return binaryPath;
 }
 
-/** Ensure the dedicated mere root is initialized with config and keys. */
-async function ensureRoot(mereRoot: string, mereBinary: string): Promise<void> {
+async function ensureRoot(
+  mereRoot: string,
+  mereBinary: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const mereDir = `${mereRoot}/mere`;
   const storeDir = `${mereDir}/store`;
   const configPath = `${mereDir}/config.kdl`;
   const keysDir = `${mereDir}/keys`;
   const keyPath = `${keysDir}/mere.pub`;
 
-  // Create store if missing
   try {
-    await Deno.stat(storeDir);
-  } catch {
-    const cmd = new Deno.Command(mereBinary, {
+    const stat = await Deno.stat(storeDir);
+    if (!stat.isDirectory) throw new Error(`${storeDir} is not a directory`);
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    const output = await runCommand(mereBinary, {
       args: ["--root", mereRoot, "store", "init"],
-    });
-    const output = await cmd.output();
+      stdout: "piped",
+      stderr: "piped",
+    }, signal);
     if (!output.success) {
-      const stderr = new TextDecoder().decode(output.stderr);
-      throw new Error(`mere store init failed: ${stderr}`);
+      throw new Error(
+        `mere store init failed: ${new TextDecoder().decode(output.stderr)}`,
+      );
     }
   }
 
-  // Ensure config
   try {
     await Deno.stat(configPath);
-  } catch {
-    const res = await fetch(CONFIG_URL);
-    if (res.ok) {
-      const text = await res.text();
-      await Deno.writeTextFile(configPath, text);
-    }
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    const res = await fetch(CONFIG_URL, { signal });
+    if (!res.ok) throw new Error(`Failed to fetch Mere config: ${res.status}`);
+    await Deno.writeTextFile(configPath, await res.text());
   }
-
-  // Ensure key
   try {
     await Deno.stat(keyPath);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
     await Deno.mkdir(keysDir, { recursive: true });
-    const res = await fetch(KEY_URL);
-    if (res.ok) {
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      await Deno.writeFile(keyPath, bytes);
+    const res = await fetch(KEY_URL, { signal });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Mere repository key: ${res.status}`);
     }
+    await Deno.writeFile(keyPath, new Uint8Array(await res.arrayBuffer()));
   }
 }
 
-/** Optionally link host store into the dedicated root. */
 async function linkHostStore(mereRoot: string): Promise<void> {
   const hostStore = "/mere/store";
   const localStore = `${mereRoot}/mere/store`;
-
   try {
-    const hostStat = await Deno.stat(hostStore);
-    if (!hostStat.isDirectory) return;
+    const stat = await Deno.stat(hostStore);
+    if (!stat.isDirectory) return;
   } catch {
     return;
   }
-
   try {
-    const localStat = await Deno.lstat(localStore);
-    if (localStat.isSymlink) return;
+    const stat = await Deno.lstat(localStore);
+    if (stat.isSymlink) return;
     await Deno.remove(localStore, { recursive: true });
-  } catch {
-    // Doesn't exist yet
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
-
   await Deno.symlink(hostStore, localStore);
 }
 
-/** Write a temporary profile.kdl from a package list. */
 async function writeProfileKdl(
   dir: string,
   packages: string[],
 ): Promise<string> {
   await Deno.mkdir(dir, { recursive: true });
   const profilePath = `${dir}/profile.kdl`;
-  const packageLines = packages.map((p) => `  package "${p}"`).join("\n");
-  const content = `profile {\n${packageLines}\n}\n`;
-  await Deno.writeTextFile(profilePath, content);
+  const packageLines = packages.map((pkg) => `  package "${pkg}"`).join("\n");
+  await Deno.writeTextFile(profilePath, `profile {\n${packageLines}\n}\n`);
   return profilePath;
 }
 
-/** Truncate a string to maxBytes (UTF-8 aware). */
-function truncate(str: string, maxBytes: number): string {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(str);
-  if (bytes.length <= maxBytes) return str;
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  return decoder.decode(bytes.slice(0, maxBytes)) + "\n... [truncated]";
+export function truncate(
+  str: string,
+  maxBytes: number,
+): { text: string; truncated: boolean } {
+  const bytes = new TextEncoder().encode(str);
+  if (bytes.length <= maxBytes) return { text: str, truncated: false };
+  return {
+    text: new TextDecoder("utf-8", { fatal: false }).decode(
+      bytes.slice(0, maxBytes),
+    ) + "\n... [truncated]",
+    truncated: true,
+  };
 }
 
-/** Model definition for executing commands inside a Mere shell namespace. */
+/** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.07.21.2",
+  version: "2026.08.17.1",
   description:
-    "Execute commands inside a Mere Linux shell namespace with a dedicated root and freshly-downloaded mere binary.",
+    "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
+  upgrades: [{
+    toVersion: "2026.08.17.1",
+    description:
+      "Replace lossy command strings with argv, verify downloaded binaries, and propagate model cancellation.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => ({
+      ...old,
+      mereSHA256: old.mereSHA256 ?? "",
+    }),
+  }],
   resources: {
     result: {
       description: "Command execution result with exit code and output",
@@ -190,84 +276,69 @@ export const model = {
   methods: {
     run: {
       description:
-        "Run a command inside a mere shell with specified packages available",
+        "Run an exact argv inside a Mere shell with specified packages available.",
       arguments: z.object({
         packages: z.array(z.string()).describe(
-          "Packages to make available in the shell (e.g. ['zig', 'cmake'])",
+          "Packages to make available in the shell.",
         ),
-        command: z.string().describe("Command to execute inside the shell"),
+        argv: z.array(z.string()).min(1).describe(
+          "Exact command argv; argv[0] is the executable.",
+        ),
         workdir: z.string().optional().describe(
-          "Working directory (bind-mounted into the namespace)",
+          "Working directory (bind-mounted into the namespace).",
         ),
       }),
       // deno-lint-ignore no-explicit-any
       execute: async (args: Record<string, unknown>, context: any) => {
-        const { packages, command: userCommand, workdir } = args as {
+        const { packages, argv, workdir } = args as {
           packages: string[];
-          command: string;
+          argv: string[];
           workdir?: string;
         };
-
-        const globalArgs = context.globalArgs;
+        const globalArgs = context.globalArgs as {
+          mereVersion: string;
+          mereSHA256: string;
+          mereRoot: string;
+          useHostStore: boolean;
+        };
         const start = performance.now();
-
+        const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
+        const mereRoot = globalArgs.mereRoot ||
+          `${repoDir}/.swamp/mere-shell/root`;
         try {
-          context.logger.info("Resolving mere version: {version}", {
-            version: globalArgs.mereVersion,
-          });
-          const version = await resolveVersion(globalArgs.mereVersion);
-          context.logger.info("Using mere {version}", { version });
-
-          const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
-          const cacheDir = `${repoDir}/.swamp/mere-shell/bin`;
-          const mereRoot = globalArgs.mereRoot ||
-            `${repoDir}/.swamp/mere-shell/root`;
-
-          context.logger.info("Ensuring mere binary at {cacheDir}", {
-            cacheDir,
-          });
-          const mereBinary = await ensureBinary(version, cacheDir);
-
-          context.logger.info("Ensuring mere root at {root}", {
-            root: mereRoot,
-          });
-          await ensureRoot(mereRoot, mereBinary);
-
-          if (globalArgs.useHostStore) {
-            context.logger.info("Linking host store into dedicated root");
-            await linkHostStore(mereRoot);
-          }
-
-          const profileDir = `${repoDir}/.swamp/mere-shell/profiles`;
-          const profilePath = await writeProfileKdl(profileDir, packages);
-          context.logger.info("Profile written: {packages}", {
-            packages: packages.join(", "),
-          });
-
+          const version = await resolveVersion(
+            globalArgs.mereVersion,
+            context.signal,
+          );
+          const mereBinary = await ensureBinary(
+            version,
+            `${repoDir}/.swamp/mere-shell/bin`,
+            globalArgs.mereSHA256,
+            context.signal,
+          );
+          await ensureRoot(mereRoot, mereBinary, context.signal);
+          if (globalArgs.useHostStore) await linkHostStore(mereRoot);
+          const profilePath = await writeProfileKdl(
+            `${repoDir}/.swamp/mere-shell/profiles`,
+            packages,
+          );
           const shellArgs = [
             "--root",
             mereRoot,
             "shell",
             profilePath,
             "--",
-            ...userCommand.split(" "),
+            ...argv,
           ];
-
-          context.logger.info("Executing: mere {args}", {
+          context.logger.info("Executing Mere shell argv: {args}", {
             args: shellArgs.join(" "),
           });
-
-          const cmdOptions: Deno.CommandOptions = {
+          const output = await runCommand(mereBinary, {
             args: shellArgs,
             stdout: "piped",
             stderr: "piped",
             cwd: workdir,
-          };
-
-          const cmd = new Deno.Command(mereBinary, cmdOptions);
-          const output = await cmd.output();
-          const durationMs = Math.round(performance.now() - start);
-
+          }, context.signal);
           const stdout = truncate(
             new TextDecoder().decode(output.stdout),
             MAX_OUTPUT_BYTES,
@@ -276,58 +347,50 @@ export const model = {
             new TextDecoder().decode(output.stderr),
             MAX_OUTPUT_BYTES,
           );
-
           const result = {
             exitCode: output.code,
-            stdout,
-            stderr,
-            durationMs,
+            stdout: stdout.text,
+            stderr: stderr.text,
+            truncated: stdout.truncated || stderr.truncated,
+            durationMs: Math.round(performance.now() - start),
             mereVersion: version,
             mereRoot,
             packages,
-            command: userCommand,
-            success: output.code === 0,
+            argv,
+            success: output.success,
           };
-
-          context.logger.info(
-            "Command finished: exit={code} duration={ms}ms",
-            { code: output.code, ms: durationMs },
-          );
-
-          const handle = await context.writeResource(
-            "result",
-            "current",
-            result,
-          );
-          return { dataHandles: [handle] };
-        } catch (err) {
-          const durationMs = Math.round(performance.now() - start);
-          const repoDir_ = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
-          const mereRoot_ = globalArgs.mereRoot ||
-            `${repoDir_}/.swamp/mere-shell/root`;
+          context.logger.info("Mere shell command completed", {
+            exitCode: result.exitCode,
+            durationMs: result.durationMs,
+            success: result.success,
+          });
+          return {
+            dataHandles: [
+              await context.writeResource("result", "current", result),
+            ],
+          };
+        } catch (error) {
           const result = {
             exitCode: -1,
             stdout: "",
             stderr: "",
-            durationMs,
+            truncated: false,
+            durationMs: Math.round(performance.now() - start),
             mereVersion: globalArgs.mereVersion,
-            mereRoot: mereRoot_,
+            mereRoot,
             packages,
-            command: userCommand,
+            argv,
             success: false,
-            error: String(err),
+            error: String(error),
           };
-
-          context.logger.error("mere-shell failed: {err}", {
-            err: String(err),
+          context.logger.error("Mere shell command failed", {
+            error: result.error,
           });
-
-          const handle = await context.writeResource(
-            "result",
-            "current",
-            result,
-          );
-          return { dataHandles: [handle] };
+          return {
+            dataHandles: [
+              await context.writeResource("result", "current", result),
+            ],
+          };
         }
       },
     },
