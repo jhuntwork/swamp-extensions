@@ -1,10 +1,9 @@
 manifestVersion: 1
 name: "@jeremy/mere-shell"
-version: "2026.08.07.1"
+version: "2026.08.17.1"
 description: >
-  Execute commands inside a Mere Linux shell namespace with a dedicated root
-  and a freshly-downloaded mere binary. Supports pinned or latest versions,
-  package selection, and optional host store sharing for cache efficiency.
+  Execute typed argv inside a verified, cancellable Mere Linux shell namespace
+  with dedicated roots and isolated package sets.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
   base: manifest

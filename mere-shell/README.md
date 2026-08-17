@@ -1,9 +1,10 @@
 # @jeremy/mere-shell
 
-Execute commands inside a [Mere Linux](https://merelinux.org) shell namespace
-with isolated package sets. Downloads a fresh `mere` binary per version,
-operates in a dedicated root (separate from the host's `/mere`), and captures
-structured output.
+Execute typed commands inside a [Mere Linux](https://merelinux.org) shell namespace
+with isolated package sets. The extension verifies a downloaded Mere binary
+against its release `SHA256SUMS` manifest (or an explicit SHA-256 pin),
+propagates model cancellation to every subprocess, and captures structured
+output.
 
 Useful for reproducible build verification, recipe testing, and running tools
 that require Mere's package ecosystem without polluting the host system.
@@ -32,7 +33,7 @@ swamp model create @jeremy/mere-shell my-mere-shell \
 ```bash
 swamp model method run my-mere-shell run \
   --input 'packages=["zig","cmake"]' \
-  --input 'command=zig build test --summary all' \
+  --input 'argv=["zig","build","test","--summary","all"]' \
   --input 'workdir=/home/user/project'
 ```
 
@@ -48,15 +49,16 @@ The `result` resource contains:
 | `durationMs` | number | Wall-clock execution time |
 | `mereVersion` | string | Actual mere version used |
 | `packages` | string[] | Packages installed in the shell |
-| `command` | string | Command that was executed |
-| `success` | boolean | True if exitCode === 0 |
+| `argv` | string[] | Exact argv to run; `argv[0]` is the executable. |
+| `success` | boolean | True when the command exits successfully. |
 | `error` | string? | Error message if setup failed |
 
 ## Global arguments
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `mereVersion` | `"latest"` | Mere version to use (`latest` or pinned like `0.15.2`) |
+| `mereVersion` | `"latest"` | Mere version to use (`latest` or a pin such as `0.18.2`) |
+| `mereSHA256` | `""` | Optional 64-character SHA-256 pin for the selected architecture binary; otherwise release `SHA256SUMS` is used. |
 | `mereRoot` | `""` | Dedicated root path (empty = auto: `$SWAMP_REPO_DIR/.swamp/mere-shell/root`) |
 | `useHostStore` | `false` | If true, symlinks host `/mere/store` into the dedicated root for cache hits |
 
@@ -71,7 +73,7 @@ steps:
       methodName: run
       inputs:
         packages: '["zig"]'
-        command: "zig build test --summary all"
+        argv: '["zig", "build", "test", "--summary", "all"]'
         workdir: "/home/user/project"
 ```
 
