@@ -1,0 +1,102 @@
+import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.19";
+import { createPacket } from "../change-packet/mod.ts";
+import { planPr } from "./plan.ts";
+
+const config = {
+  repository: "owner/repository",
+  baseBranch: "main",
+  expectedActor: "delivery-bot",
+  token: "test-token",
+};
+const sha = (letter: string) => letter.repeat(40);
+
+function mock(routes: Record<string, unknown>) {
+  return ((input: string | URL | Request) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input.url;
+    if (!(url in routes)) throw new Error(`unexpected route ${url}`);
+    return Promise.resolve(
+      new Response(JSON.stringify(routes[url]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+}
+
+async function packet(
+  sourceRepository = "owner/repository",
+  draft = false,
+) {
+  return await createPacket({
+    targetRepository: "owner/repository",
+    sourceRepository,
+    base: { ref: "main", sha: sha("a") },
+    head: { ref: "feature/change", sha: sha("b") },
+    changedPaths: ["README.md"],
+    checks: [{
+      name: "test",
+      required: true,
+      outcome: "passed",
+      evidenceRef: "evidence://test",
+      detail: "",
+    }],
+    submission: { title: "test", body: "body", draft },
+  });
+}
+
+function remoteRoutes(pulls: unknown[]) {
+  return mock({
+    "https://api.github.com/user": { login: "delivery-bot" },
+    "https://api.github.com/repos/owner/repository": {
+      id: 1,
+      full_name: "owner/repository",
+      default_branch: "main",
+    },
+    "https://api.github.com/repos/owner/repository/git/ref/heads/main": {
+      object: { sha: sha("a") },
+    },
+    "https://api.github.com/repos/owner/repository/git/ref/heads/feature%2Fchange":
+      { object: { sha: sha("b") } },
+    "https://api.github.com/repos/owner/repository/pulls?state=open&head=owner%3Afeature%2Fchange&base=main&per_page=100":
+      pulls,
+  });
+}
+
+Deno.test("planPr binds a packet to remote refs and discovers an existing PR", async () => {
+  const p = await packet();
+  const plan = await planPr(
+    config,
+    p,
+    remoteRoutes([{
+      number: 7,
+      html_url: "https://github.com/owner/repository/pull/7",
+    }]),
+  );
+  assertEquals(plan.existingPullRequest?.number, 7);
+  assertEquals(plan.base.sha, sha("a"));
+});
+
+// The plan is what a human approves, so it must state which kind of PR follows.
+Deno.test("planPr records the draft state the packet requested", async () => {
+  const ordinary = await planPr(config, await packet(), remoteRoutes([]));
+  assertEquals(ordinary.draft, false);
+
+  const draft = await planPr(
+    config,
+    await packet("owner/repository", true),
+    remoteRoutes([]),
+  );
+  assertEquals(draft.draft, true);
+});
+
+Deno.test("planPr rejects forks before GitHub I/O", async () => {
+  await assertRejects(
+    async () => planPr(config, await packet("fork/repository"), mock({})),
+    Error,
+    "Fork",
+  );
+});
