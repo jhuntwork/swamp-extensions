@@ -1,0 +1,30 @@
+manifestVersion: 1
+name: "@jeremy/change-packet"
+version: "2026.08.18.1"
+description: >
+  Forge-neutral immutable change packets for reviewed repository delivery.
+  Records exact Git base/head identity, validation evidence, requested draft
+  submission metadata, a canonical SHA-256 digest, and derived readiness.
+  Performs no network, Git, forge, approval, merge, or release operation.
+repository: "https://github.com/jhuntwork/swamp-extensions"
+paths:
+  base: manifest
+models:
+  - mod.ts
+workflows: []
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - README.md
+  - PROTOCOL.md
+  - LICENSE.txt
+  - mod_test.ts
+labels:
+  - git
+  - workflow
+  - review
+  - delivery
+  - evidence
+dependencies: []
