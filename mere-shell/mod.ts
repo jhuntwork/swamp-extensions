@@ -4,8 +4,8 @@
 import { z } from "npm:zod@4";
 
 const CODEBERG_API =
-  "https://codeberg.org/api/v1/repos/merelinux/mere/releases/latest";
-const DOWNLOAD_BASE = "https://codeberg.org/merelinux/mere/releases/download";
+  "https://api.github.com/repos/jhuntwork/mere/releases/latest";
+const DOWNLOAD_BASE = "https://github.com/jhuntwork/mere/releases/download";
 const CONFIG_URL = "https://pkgs.merelinux.org/config.kdl";
 const KEY_URL = "https://pkgs.merelinux.org/mere.pub";
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -250,7 +250,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.08.17.1",
+  version: "2026.08.19.1",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -264,6 +264,13 @@ export const model = {
       ...old,
       mereSHA256: old.mereSHA256 ?? "",
     }),
+  }, {
+    toVersion: "2026.08.19.1",
+    description:
+      "Fix download URL from Codeberg to GitHub where Mere releases are published.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     result: {
