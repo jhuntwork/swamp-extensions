@@ -247,7 +247,9 @@ jobs:
           inputs:
             targetRepository: jhuntwork/mere
             sourceRepository: jhuntwork/mere
-            base: { ref: main, sha: ${{ inputs.baseSha }} }
+            base:
+              ref: main
+              sha: ${{ inputs.baseSha }}
             head:
               ref: ${{ inputs.branch }}
               sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
