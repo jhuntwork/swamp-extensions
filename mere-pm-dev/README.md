@@ -47,3 +47,22 @@ swamp model method run mere-pm-validation smoke \
 
 A successful `releaseBuild` proves the candidate was compiled through the
 portable baseline path; it does not publish an artifact or create a release.
+
+## `@jeremy/mere-change` workflow
+
+This package also distributes `mere-change.yaml`, the Mere-specific workflow
+for a fresh `main` branch through a reviewable pull request. It creates an
+isolated clone at the supplied `baseSha`, runs this model's full test, portable
+baseline build, and `describe` smoke profile, stages only `allowedPaths`,
+pushes a non-force branch, and creates/validates a change packet and matching
+same-repository pull request.
+
+The workflow carries **no credentials or model instances**. It creates disposable
+`@jeremy/mere-pm-dev` validation and `@jeremy/change-packet` evidence models
+for each run. A workspace supplies only `prModel`: a vault-backed
+`@jeremy/github-pr` instance bound to `jhuntwork/mere`.
+
+The pull request is the review gate. The workflow does not merge, release,
+administer the repository, or edit a pull request. It is deliberately for a
+new branch from `main`; a follow-up to an already-open pull request remains a
+separate continuation task until that repeated need earns a second workflow.
