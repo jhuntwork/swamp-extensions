@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/github-pr"
-version: "2026.08.19.1"
+version: "2026.08.21.1"
 description: >
   Narrow GitHub.com same-repository pull-request boundary: preflight, plan,
   apply, and read-back verification. Draft is requested per packet rather than

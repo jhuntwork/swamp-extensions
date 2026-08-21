@@ -62,7 +62,7 @@ async function sha256(text: string): Promise<string> {
   ).join("");
 }
 
-/** Build a read-only plan after binding a ready packet to exact remote refs. */
+/** Build a read-only plan after binding a ready packet to its remote head and base branch. */
 export async function planPr(
   rawConfig: unknown,
   rawPacket: unknown,
@@ -82,10 +82,7 @@ export async function planPr(
     throw new Error("Packet base ref does not match bound baseBranch");
   }
 
-  const checked = await preflight(config, fetchImpl);
-  if (checked.baseSha !== packet.base.sha) {
-    throw new Error("Remote base SHA does not match packet base SHA");
-  }
+  await preflight(config, fetchImpl);
 
   const head = await getJson(
     fetchImpl,

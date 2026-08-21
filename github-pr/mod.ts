@@ -33,8 +33,16 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.08.19.1",
+  version: "2026.08.21.1",
   globalArguments: Globals,
+  upgrades: [{
+    toVersion: "2026.08.21.1",
+    description:
+      "Permit candidate-base provenance to remain valid when the remote base branch advances before PR planning.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }],
   resources: {
     preflight: {
       description: "Bound actor, repository, and base-ref evidence",
