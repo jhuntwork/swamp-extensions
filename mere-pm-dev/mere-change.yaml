@@ -1,11 +1,12 @@
 id: 14f8837e-5232-4b25-8d13-5560c8a413f0
 name: "@jeremy/mere-change"
 description: >-
-  Deliver one scoped change to the Mere package-manager repository: clone a
-  pinned main commit, validate with the supplied Mere source model, commit and
-  push the allowed paths, create and verify a change packet, then create and
-  verify the planned pull request. This workflow contains no credentials or
-  model bindings.
+  Deliver one scoped implementation-ready change from an existing isolated
+  Mere candidate: validate with the supplied Mere source model, commit and push
+  the allowed paths, create and verify a change packet, then create and verify
+  the planned pull request. Prepare the candidate first with
+  @jeremy/mere-change-prepare. This workflow contains no credentials or model
+  bindings.
 version: 1
 concurrency: 1
 inputs:
@@ -13,7 +14,7 @@ inputs:
     worktreePath:
       type: string
       minLength: 1
-      description: New empty path for the isolated Mere clone.
+      description: Existing isolated Mere candidate prepared at baseSha and containing the scoped implementation.
     branch:
       type: string
       minLength: 1
@@ -73,7 +74,7 @@ inputs:
     - title
     - prModel
 jobs:
-  - name: prepare
+  - name: validate-and-deliver
     steps:
       - name: assert-branch
         task:
@@ -82,24 +83,9 @@ jobs:
             !inputs.branch.contains("/") && !inputs.branch.contains("\\\\")
           message: Branch names cannot contain slash or backslash.
           severity: high
-      - name: clone-main
+      - name: inspect-candidate-branch
         dependsOn:
           - step: assert-branch
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelType: "@swamp/git"
-          modelName: ${{ "mere-clone-" + run.id }}
-          methodName: clone
-          inputs:
-            url: git@github.com:jhuntwork/mere.git
-            path: ${{ inputs.worktreePath }}
-            branch: main
-            depth: 0
-      - name: create-branch
-        dependsOn:
-          - step: clone-main
             condition:
               type: succeeded
         task:
@@ -109,19 +95,23 @@ jobs:
           methodName: branch
           inputs:
             repoPath: ${{ inputs.worktreePath }}
-            name: ${{ inputs.branch }}
-            create: true
-            startPoint: ${{ inputs.baseSha }}
-        dataOutputOverrides:
-          - specName: branchResult
-            lifetime: workflow
-  - name: validate-and-deliver
-    dependsOn:
-      - job: prepare
-        condition:
-          type: succeeded
-    steps:
+            list: true
+      - name: assert-candidate-branch
+        dependsOn:
+          - step: inspect-candidate-branch
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.latest("mere-worktree-" + run.id, "branchResult").attributes.current == inputs.branch
+          message: Candidate worktree is not on the requested delivery branch.
+          severity: high
       - name: test
+        dependsOn:
+          - step: assert-candidate-branch
+            condition:
+              type: succeeded
         task:
           type: model_method
           modelType: "@jeremy/mere-pm-dev"

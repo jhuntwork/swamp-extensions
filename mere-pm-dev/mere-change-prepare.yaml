@@ -1,0 +1,70 @@
+id: 0c60d062-2e18-42b1-8556-2b9d593fb9f5
+name: "@jeremy/mere-change-prepare"
+description: >-
+  Prepare an isolated Mere candidate from a pinned main commit for scoped
+  implementation. This workflow creates no commit, push, pull request, or
+  credential-bearing binding.
+version: 1
+concurrency: 1
+inputs:
+  properties:
+    worktreePath:
+      type: string
+      minLength: 1
+      description: New empty path for the isolated Mere clone.
+    branch:
+      type: string
+      minLength: 1
+      pattern: '^[^/\\]+$'
+      description: Informal non-hierarchical branch name.
+    baseSha:
+      type: string
+      pattern: '^[0-9a-fA-F]{40,64}$'
+      description: Immutable main commit used as the candidate branch start.
+  required:
+    - worktreePath
+    - branch
+    - baseSha
+jobs:
+  - name: prepare-candidate
+    steps:
+      - name: assert-branch
+        task:
+          type: assert
+          expr: >-
+            !inputs.branch.contains("/") && !inputs.branch.contains("\\\\")
+          message: Branch names cannot contain slash or backslash.
+          severity: high
+      - name: clone-main
+        dependsOn:
+          - step: assert-branch
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-clone-" + run.id }}
+          methodName: clone
+          inputs:
+            url: git@github.com:jhuntwork/mere.git
+            path: ${{ inputs.worktreePath }}
+            branch: main
+            depth: 0
+      - name: create-branch
+        dependsOn:
+          - step: clone-main
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-worktree-" + run.id }}
+          methodName: branch
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            name: ${{ inputs.branch }}
+            create: true
+            startPoint: ${{ inputs.baseSha }}
+        dataOutputOverrides:
+          - specName: preparedCandidate
+            lifetime: workflow
