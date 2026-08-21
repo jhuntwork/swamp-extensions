@@ -104,7 +104,7 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-worktree-" + run.id, "branchResult").attributes.current == inputs.branch
+            data.latest("mere-worktree-" + run.id, "branchResult").current == inputs.branch
           message: Candidate worktree is not on the requested delivery branch.
           severity: high
       - name: test
@@ -127,8 +127,8 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0
+            data.latest("mere-pm-" + run.id, "current").success == true &&
+            data.latest("mere-pm-" + run.id, "current").exitCode == 0
           message: Full Mere source validation failed.
           severity: high
       - name: portable-build
@@ -151,9 +151,9 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0 &&
-            data.latest("mere-pm-" + run.id, "current").attributes.baseline == true
+            data.latest("mere-pm-" + run.id, "current").success == true &&
+            data.latest("mere-pm-" + run.id, "current").exitCode == 0 &&
+            data.latest("mere-pm-" + run.id, "current").baseline == true
           message: Portable baseline build failed.
           severity: high
       - name: smoke
@@ -176,9 +176,9 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0 &&
-            data.latest("mere-pm-" + run.id, "current").attributes.stderr == ""
+            data.latest("mere-pm-" + run.id, "current").success == true &&
+            data.latest("mere-pm-" + run.id, "current").exitCode == 0 &&
+            data.latest("mere-pm-" + run.id, "current").stderr == ""
           message: Built Mere CLI smoke failed.
           severity: high
       - name: commit
@@ -252,8 +252,8 @@ jobs:
               sha: ${{ inputs.baseSha }}
             head:
               ref: ${{ inputs.branch }}
-              sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
-            changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].attributes.files }}
+              sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].sha }}
+            changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].files }}
             checks:
               - name: repository-validation
                 required: true
@@ -279,7 +279,7 @@ jobs:
           methodName: verify
           inputs:
             packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0] }}
       - name: assert-packet
         dependsOn:
           - step: verify-packet
@@ -288,8 +288,8 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.valid == true &&
-            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.readiness.ready == true
+            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].valid == true &&
+            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].readiness.ready == true
           message: Delivery packet failed integrity or readiness verification.
           severity: high
       - name: plan-pr
@@ -303,7 +303,7 @@ jobs:
           methodName: planPr
           inputs:
             packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0] }}
       - name: apply-pr
         dependsOn:
           - step: plan-pr
@@ -315,8 +315,8 @@ jobs:
           methodName: applyPr
           inputs:
             packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-            plan: ${{ data.findBySpec(inputs.prModel, "plan")[0].attributes }}
+              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0] }}
+            plan: ${{ data.findBySpec(inputs.prModel, "plan")[0] }}
       - name: verify-pr
         dependsOn:
           - step: apply-pr
@@ -328,5 +328,5 @@ jobs:
           methodName: verifyPr
           inputs:
             packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-            result: ${{ data.findBySpec(inputs.prModel, "applied")[0].attributes }}
+              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0] }}
+            result: ${{ data.findBySpec(inputs.prModel, "applied")[0] }}
