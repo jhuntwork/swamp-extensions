@@ -48,7 +48,7 @@ async function packet(
   });
 }
 
-function remoteRoutes(pulls: unknown[]) {
+function remoteRoutes(pulls: unknown[], remoteBase = sha("a")) {
   return mock({
     "https://api.github.com/user": { login: "delivery-bot" },
     "https://api.github.com/repos/owner/repository": {
@@ -57,7 +57,7 @@ function remoteRoutes(pulls: unknown[]) {
       default_branch: "main",
     },
     "https://api.github.com/repos/owner/repository/git/ref/heads/main": {
-      object: { sha: sha("a") },
+      object: { sha: remoteBase },
     },
     "https://api.github.com/repos/owner/repository/git/ref/heads/feature%2Fchange":
       { object: { sha: sha("b") } },
@@ -80,7 +80,12 @@ Deno.test("planPr binds a packet to remote refs and discovers an existing PR", a
   assertEquals(plan.base.sha, sha("a"));
 });
 
-// The plan is what a human approves, so it must state which kind of PR follows.
+Deno.test("planPr preserves the packet base when remote main has advanced", async () => {
+  const p = await packet();
+  const plan = await planPr(config, p, remoteRoutes([], sha("c")));
+  assertEquals(plan.base, p.base);
+});
+
 Deno.test("planPr records the draft state the packet requested", async () => {
   const ordinary = await planPr(config, await packet(), remoteRoutes([]));
   assertEquals(ordinary.draft, false);
