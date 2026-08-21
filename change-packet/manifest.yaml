@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/change-packet"
-version: "2026.08.18.1"
+version: "2026.08.21.1"
 description: >
   Forge-neutral immutable change packets for reviewed repository delivery.
   Records exact Git base/head identity, validation evidence, requested draft

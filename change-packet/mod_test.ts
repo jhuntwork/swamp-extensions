@@ -211,6 +211,8 @@ Deno.test("model methods write packet and verification resources", async () => {
   assertEquals(verifyResult.dataHandles.length, 1);
   assertEquals(writes.length, 2);
   assertEquals(writes[1].spec, "verification");
+  assertEquals(writes[1].instance, `verification-${packet.id}`);
+  assertEquals(writes[1].instance === writes[0].instance, false);
   assertEquals((writes[1].data as { valid: boolean }).valid, true);
 });
 

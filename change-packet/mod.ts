@@ -251,7 +251,7 @@ export async function verifyPacket(
 /** Model definition for durable, forge-neutral delivery proposals. */
 export const model = {
   type: "@jeremy/change-packet",
-  version: "2026.08.18.1",
+  version: "2026.08.21.1",
   description:
     "Create and verify immutable, forge-neutral change packets from Git identity and validation evidence. Performs no network or repository mutation.",
   globalArguments: z.object({}),
@@ -320,7 +320,7 @@ export const model = {
         const verification = await verifyPacket(args.packet);
         const handle = await context.writeResource(
           "verification",
-          `packet-${verification.packetId}`,
+          `verification-${verification.packetId}`,
           verification,
         );
         context.logger?.info("Verified immutable change packet", {
