@@ -1,16 +1,18 @@
 manifestVersion: 1
 name: "@jeremy/mere-pm-dev"
-version: "2026.08.20.2"
+version: "2026.08.21.1"
 description: >
   Build and validate the Mere package-manager source tree through fixed,
-  cancellable Zig commands. Does not download Mere releases, manage a Mere root,
-  build recipes, or publish artifacts.
+  cancellable Zig commands, and package its fresh-branch delivery workflow.
+  Does not download Mere releases, manage a Mere root, build recipes, publish
+  artifacts, or provide credentials.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
   base: manifest
 models:
   - mod.ts
-workflows: []
+workflows:
+  - mere-change.yaml
 vaults: []
 drivers: []
 datastores: []
@@ -25,4 +27,8 @@ labels:
   - development
   - zig
   - validation
-dependencies: []
+  - delivery
+  - pull-request
+dependencies:
+  - "@jeremy/change-packet"
+  - "@jeremy/github-pr"
