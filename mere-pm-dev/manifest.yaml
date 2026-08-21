@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-pm-dev"
-version: "2026.08.21.4"
+version: "2026.08.21.5"
 description: >
   Build and validate the Mere package-manager source tree through fixed,
   cancellable Zig commands, and package its fresh-branch delivery workflows.
