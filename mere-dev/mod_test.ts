@@ -56,12 +56,14 @@ Deno.test("packaged MereLinux workflow preserves the recipe delivery boundaries"
       "methodName: build",
       "methodName: importOutputs",
       "methodName: run",
+      "workdir: /",
       "targetRepository: jhuntwork/merelinux",
       "methodName: verifyPr",
     ]
   ) {
     assertStringIncludes(workflow, required);
   }
+  assertEquals(workflow.includes("workdir: ${{ inputs.worktreePath }}"), false);
 });
 
 Deno.test({

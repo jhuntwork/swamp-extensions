@@ -4,9 +4,9 @@
 // deno-lint-ignore-file no-import-prefix
 import { z } from "npm:zod@4";
 
-const CODEBERG_API =
-  "https://codeberg.org/api/v1/repos/merelinux/mere/releases/latest";
-const DOWNLOAD_BASE = "https://codeberg.org/merelinux/mere/releases/download";
+const GITHUB_API =
+  "https://api.github.com/repos/jhuntwork/mere/releases/latest";
+const DOWNLOAD_BASE = "https://github.com/jhuntwork/mere/releases/download";
 const CONFIG_URL = "https://pkgs.merelinux.org/config.kdl";
 const KEY_URL = "https://pkgs.merelinux.org/mere.pub";
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
@@ -22,7 +22,7 @@ export async function runCommand(
 
 const GlobalArgsSchema = z.object({
   mereVersion: z.string().default("latest").describe(
-    "Mere version to use. 'latest' resolves from Codeberg releases API, or pin e.g. '0.15.2'. Ignored when mereBinaryPath is set.",
+    "Mere version to use. 'latest' resolves from the GitHub releases API, or pin e.g. '0.21.0'. Ignored when mereBinaryPath is set.",
   ),
   mereBinaryPath: z.string().default("").describe(
     "Optional path to an existing mere binary. When set, skips download and runs this exact binary (useful for local builds).",
@@ -95,7 +95,7 @@ const ImportResultSchema = z.object({
 /** Resolve the actual mere version when "latest" is requested. */
 async function resolveVersion(version: string): Promise<string> {
   if (version !== "latest") return version;
-  const res = await fetch(CODEBERG_API);
+  const res = await fetch(GITHUB_API);
   if (!res.ok) {
     throw new Error(`Failed to fetch latest mere version: ${res.status}`);
   }
@@ -296,7 +296,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.23.1",
+  version: "2026.08.23.2",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -323,6 +323,14 @@ export const model = {
       toVersion: "2026.08.23.1",
       description:
         "Package the canonical MereLinux recipe validation and delivery workflow. No globalArguments changes.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.08.23.2",
+      description:
+        "Resolve and download hosted Mere releases from GitHub so recipe validation matches installed-profile smoke tests.",
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
