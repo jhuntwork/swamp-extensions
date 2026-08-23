@@ -1,4 +1,8 @@
-import { assertEquals, assertThrows } from "jsr:@std/assert@1";
+import {
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "jsr:@std/assert@1";
 import {
   developmentSigningKeyPath,
   parseBlake3Output,
@@ -39,6 +43,25 @@ Deno.test("parseBlake3Output rejects truncated digests", () => {
     Error,
     "Could not parse a BLAKE3 digest",
   );
+});
+
+Deno.test("packaged MereLinux workflow preserves the recipe delivery boundaries", async () => {
+  const workflow = await Deno.readTextFile(
+    new URL("./merelinux-change.yaml", import.meta.url),
+  );
+  for (
+    const required of [
+      'name: "@jeremy/merelinux-change"',
+      "methodName: validate",
+      "methodName: build",
+      "methodName: importOutputs",
+      "methodName: run",
+      "targetRepository: jhuntwork/merelinux",
+      "methodName: verifyPr",
+    ]
+  ) {
+    assertStringIncludes(workflow, required);
+  }
 });
 
 Deno.test({
