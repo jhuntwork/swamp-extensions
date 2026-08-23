@@ -6,7 +6,7 @@ import { z } from "npm:zod@4";
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MERE_BINARY_RELATIVE_PATH = "zig-out/bin/mere";
 
-type Method = "build" | "test" | "releaseBuild" | "smoke";
+export type Method = "build" | "test" | "releaseBuild" | "smoke";
 type ResourceName =
   | "build-result"
   | "test-result"
@@ -60,6 +60,20 @@ export function truncate(
     ) + "\n... [truncated]",
     truncated: true,
   };
+}
+
+/** Return the stable resource spec and instance identity for one method result. */
+export function resultIdentity(method: Method): ResourceName {
+  switch (method) {
+    case "build":
+      return "build-result";
+    case "test":
+      return "test-result";
+    case "releaseBuild":
+      return "baseline-build-result";
+    case "smoke":
+      return "smoke-result";
+  }
 }
 
 /** Return the exact fixed argv associated with one bounded validation method. */
@@ -154,14 +168,14 @@ async function execute(
 
 async function executeAndStore(
   method: Method,
-  resource: ResourceName,
   sourcePath: string,
   context: ModelContext,
 ) {
+  const identity = resultIdentity(method);
   try {
     const result = await execute(method, sourcePath, context);
     return {
-      dataHandles: [await context.writeResource(resource, "current", result)],
+      dataHandles: [await context.writeResource(identity, identity, result)],
     };
   } catch (error) {
     const result = {
@@ -180,7 +194,7 @@ async function executeAndStore(
       ...(method === "releaseBuild" ? { baseline: true } : {}),
     };
     return {
-      dataHandles: [await context.writeResource(resource, "current", result)],
+      dataHandles: [await context.writeResource(identity, identity, result)],
     };
   }
 }
@@ -188,18 +202,28 @@ async function executeAndStore(
 /** Source-tree validation for the Mere package manager itself. */
 export const model = {
   type: "@jeremy/mere-pm-dev",
-  version: "2026.08.20.2",
+  version: "2026.08.23.1",
   description:
     "Build and validate an explicit Mere package-manager source tree using fixed, cancellable Zig commands.",
   globalArguments: z.object({}),
-  upgrades: [{
-    toVersion: "2026.08.20.2",
-    description:
-      "Move sourcePath from a static model binding to each method so isolated workflow clones are validated in place.",
-    upgradeAttributes: (
-      _old: Record<string, unknown>,
-    ): Record<string, unknown> => ({}),
-  }],
+  upgrades: [
+    {
+      toVersion: "2026.08.20.2",
+      description:
+        "Move sourcePath from a static model binding to each method so isolated workflow clones are validated in place.",
+      upgradeAttributes: (
+        _old: Record<string, unknown>,
+      ): Record<string, unknown> => ({}),
+    },
+    {
+      toVersion: "2026.08.23.1",
+      description:
+        "Give build, test, portable-build, and smoke evidence distinct stable instance identities.",
+      upgradeAttributes: (
+        _old: Record<string, unknown>,
+      ): Record<string, unknown> => ({}),
+    },
+  ],
   resources: {
     "build-result": {
       description: "Ordinary Mere package-manager build result",
@@ -234,13 +258,7 @@ export const model = {
       execute: async (
         args: z.infer<typeof SourcePathArgsSchema>,
         context: ModelContext,
-      ) =>
-        await executeAndStore(
-          "build",
-          "build-result",
-          args.sourcePath,
-          context,
-        ),
+      ) => await executeAndStore("build", args.sourcePath, context),
     },
     test: {
       description:
@@ -249,8 +267,7 @@ export const model = {
       execute: async (
         args: z.infer<typeof SourcePathArgsSchema>,
         context: ModelContext,
-      ) =>
-        await executeAndStore("test", "test-result", args.sourcePath, context),
+      ) => await executeAndStore("test", args.sourcePath, context),
     },
     releaseBuild: {
       description:
@@ -259,13 +276,7 @@ export const model = {
       execute: async (
         args: z.infer<typeof SourcePathArgsSchema>,
         context: ModelContext,
-      ) =>
-        await executeAndStore(
-          "releaseBuild",
-          "baseline-build-result",
-          args.sourcePath,
-          context,
-        ),
+      ) => await executeAndStore("releaseBuild", args.sourcePath, context),
     },
     smoke: {
       description:
@@ -274,13 +285,7 @@ export const model = {
       execute: async (
         args: z.infer<typeof SourcePathArgsSchema>,
         context: ModelContext,
-      ) =>
-        await executeAndStore(
-          "smoke",
-          "smoke-result",
-          args.sourcePath,
-          context,
-        ),
+      ) => await executeAndStore("smoke", args.sourcePath, context),
     },
   },
 };

@@ -34,6 +34,11 @@ Each result retains exact argv, source path, exit code, bounded stdout/stderr,
 truncation state, duration, success state, and, for build methods, the expected
 binary path. `releaseBuild` additionally records `baseline: true`.
 
+Results use distinct stable resource specs and matching instance identities:
+`build-result`, `test-result`, `baseline-build-result`, and `smoke-result`.
+Composed workflows should retrieve them by `specName` and read the payload under
+`.attributes`; they must not infer result type from invocation order.
+
 ## Suggested release validation
 
 ```sh
