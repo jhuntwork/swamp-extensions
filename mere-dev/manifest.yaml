@@ -1,16 +1,17 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.08.17.2"
+version: "2026.08.23.1"
 description: >
-  Mere recipe development workflow: build recipes, hash sources, and read
-  build logs. Invokes mere directly without a shell wrapper — separate from
-  mere-shell which is for ad-hoc commands in a namespace.
+  Build and validate Mere recipes and package the canonical MereLinux recipe
+  delivery workflow. Invokes mere directly without a shell wrapper; installed
+  profile smoke tests compose with @jeremy/mere-shell.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
   base: manifest
 models:
   - mod.ts
-workflows: []
+workflows:
+  - merelinux-change.yaml
 vaults: []
 drivers: []
 datastores: []
@@ -25,4 +26,9 @@ labels:
   - build
   - recipe
   - hash
-dependencies: []
+  - delivery
+  - pull-request
+dependencies:
+  - "@jeremy/change-packet"
+  - "@jeremy/github-pr"
+  - "@jeremy/mere-shell"

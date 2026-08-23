@@ -1,0 +1,465 @@
+id: 7af6c0f1-43d8-4ef4-9f0a-cc1a8fd78b24
+name: "@jeremy/merelinux-change"
+description: >-
+  Proposal-led delivery workflow for a MereLinux recipe change. It creates an
+  isolated clone from main, suspends for scoped implementation and review,
+  validates and builds one recipe, imports its outputs into a dedicated local
+  repository, installs the requested package set into an isolated profile for
+  an exact-argv smoke test, then commits, pushes, packets, and publishes a
+  review pull request.
+version: 1
+concurrency: 1
+inputs:
+  properties:
+    worktreePath:
+      type: string
+      minLength: 1
+      description: New, empty local path for this isolated clone.
+    branch:
+      type: string
+      minLength: 1
+      pattern: '^[^/\\]+$'
+      description: Informal branch name; slash-separated names are unsupported by the installed Git adapter.
+    baseSha:
+      type: string
+      minLength: 40
+      maxLength: 64
+      pattern: '^[0-9a-fA-F]{40,64}$'
+      description: Immutable commit on main from which the branch is created.
+    proposal:
+      type: string
+      minLength: 1
+    acceptanceCriteria:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+    allowedPaths:
+      type: array
+      minItems: 1
+      items:
+        type: string
+      description: Exact repository-relative paths the workflow may commit.
+    recipePath:
+      type: string
+      minLength: 1
+      pattern: '^recipes/[^/]+/[^/]+/recipe\\.kdl$'
+      description: Repository-relative recipe.kdl to validate and build.
+    repository:
+      type: string
+      minLength: 1
+      default: local
+      description: Local development repository populated by the built outputs.
+    packages:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+      description: Exact package set installed in the isolated smoke profile.
+    smokeArgv:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+      description: Exact argv executed in the installed package profile; no shell interpretation is used.
+    devModel:
+      type: string
+      minLength: 1
+      default: merelinux-recipe-validation
+      description: '@jeremy/mere-dev binding for validate, build, and import.'
+    shellModel:
+      type: string
+      minLength: 1
+      default: merelinux-recipe-smoke
+      description: '@jeremy/mere-shell binding sharing the dev model Mere root.'
+    commitMessage:
+      type: string
+      minLength: 1
+    title:
+      type: string
+      minLength: 1
+      maxLength: 256
+    body:
+      type: string
+      maxLength: 65535
+      default: ""
+    prModel:
+      type: string
+      minLength: 1
+      default: merelinux-pr
+    draft:
+      type: boolean
+      default: false
+  required:
+    - worktreePath
+    - branch
+    - baseSha
+    - proposal
+    - acceptanceCriteria
+    - allowedPaths
+    - recipePath
+    - packages
+    - smokeArgv
+    - commitMessage
+    - title
+jobs:
+  - name: prepare
+    description: Create a clean MereLinux clone and branch from the explicit immutable base.
+    steps:
+      - name: assert-compatible-branch
+        task:
+          type: assert
+          expr: >-
+            !inputs.branch.contains("/") && !inputs.branch.contains("\\\\")
+          message: Slash- or backslash-containing branch names are unsupported by the installed Git adapter.
+          severity: high
+      - name: assert-recipe-is-scoped
+        dependsOn:
+          - step: assert-compatible-branch
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: inputs.allowedPaths.exists(path, path == inputs.recipePath)
+          message: The recipe selected for validation must be included in allowedPaths.
+          severity: high
+      - name: clone-main
+        dependsOn:
+          - step: assert-recipe-is-scoped
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-clone-" + run.id }}
+          methodName: clone
+          inputs:
+            url: git@github.com:jhuntwork/merelinux.git
+            path: ${{ inputs.worktreePath }}
+            branch: main
+            depth: 0
+      - name: create-branch
+        dependsOn:
+          - step: clone-main
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-worktree-" + run.id }}
+          methodName: branch
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            name: ${{ inputs.branch }}
+            create: true
+            startPoint: ${{ inputs.baseSha }}
+        dataOutputOverrides:
+          - specName: branchResult
+            lifetime: workflow
+      - name: assert-branch-recorded
+        dependsOn:
+          - step: create-branch
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.findBySpec("merelinux-worktree-" + run.id, "branchResult")[0].attributes.current == inputs.branch
+          message: Branch creation did not produce workflow-lifetime Git evidence for the requested branch.
+          severity: high
+  - name: implementation-review
+    description: Suspend after preparation for scoped recipe implementation and diff review.
+    dependsOn:
+      - job: prepare
+        condition:
+          type: succeeded
+    steps:
+      - name: approve-implementation
+        task:
+          type: manual_approval
+          prompt: >-
+            Implement only the accepted MereLinux recipe proposal in this run's
+            isolated checkout, review the complete diff against the immutable
+            base, and confirm every changed path is allowed. Approval resumes
+            fixed recipe validation and review-branch delivery.
+  - name: validate-and-deliver
+    description: Validate the recipe through an installed package smoke test, then deliver it for PR review.
+    dependsOn:
+      - job: implementation-review
+        condition:
+          type: succeeded
+    steps:
+      - name: validate-recipe
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.devModel }}
+          methodName: validate
+          inputs:
+            recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
+      - name: assert-recipe-valid
+        dependsOn:
+          - step: validate-recipe
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
+            data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0
+          message: Mere rejected the selected recipe; inspect its validation result before changing the candidate.
+          severity: high
+      - name: build-recipe
+        dependsOn:
+          - step: assert-recipe-valid
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.devModel }}
+          methodName: build
+          inputs:
+            recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
+      - name: assert-build-succeeded
+        dependsOn:
+          - step: build-recipe
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.devModel + '" && specName == "build-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
+            data.query('modelName == "' + inputs.devModel + '" && specName == "build-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0
+          message: The isolated Mere recipe build failed; inspect its exact build result.
+          severity: high
+      - name: import-outputs
+        dependsOn:
+          - step: assert-build-succeeded
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.devModel }}
+          methodName: importOutputs
+          inputs:
+            repository: ${{ inputs.repository }}
+      - name: assert-import-succeeded
+        dependsOn:
+          - step: import-outputs
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
+            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0 &&
+            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.repository == inputs.repository
+          message: Built outputs were not imported into the requested local development repository.
+          severity: high
+      - name: smoke-installed-packages
+        dependsOn:
+          - step: assert-import-succeeded
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.shellModel }}
+          methodName: run
+          inputs:
+            packages: ${{ inputs.packages }}
+            argv: ${{ inputs.smokeArgv }}
+            workdir: ${{ inputs.worktreePath }}
+      - name: assert-smoke-succeeded
+        dependsOn:
+          - step: smoke-installed-packages
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0 &&
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.packages == inputs.packages &&
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.argv == inputs.smokeArgv &&
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.mereRoot == data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.mereRoot &&
+            data.query('modelName == "' + inputs.shellModel + '" && specName == "result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.mereVersion == data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.mereVersion
+          message: The smoke command failed, or the validation and smoke bindings did not use the same isolated Mere root and version.
+          severity: high
+      - name: inspect-candidate-status
+        dependsOn:
+          - step: assert-smoke-succeeded
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-worktree-" + run.id }}
+          methodName: status
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+        dataOutputOverrides:
+          - specName: statusResult
+            lifetime: workflow
+      - name: commit
+        dependsOn:
+          - step: inspect-candidate-status
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-worktree-" + run.id }}
+          methodName: commit
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            message: ${{ inputs.commitMessage }}
+            paths: ${{ inputs.allowedPaths }}
+            addAll: false
+        dataOutputOverrides:
+          - specName: commitResult
+            lifetime: workflow
+      - name: push
+        dependsOn:
+          - step: commit
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-worktree-" + run.id }}
+          methodName: push
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            remote: origin
+            branch: ${{ inputs.branch }}
+            setUpstream: true
+            force: false
+      - name: inspect-pushed-diff
+        dependsOn:
+          - step: push
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "merelinux-worktree-" + run.id }}
+          methodName: diff
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            base: ${{ inputs.baseSha }}
+            head: HEAD
+            nameOnly: true
+            threeWay: true
+        dataOutputOverrides:
+          - specName: diffResult
+            lifetime: workflow
+      - name: assert-pushed-diff-scoped
+        dependsOn:
+          - step: inspect-pushed-diff
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.size() > 0 &&
+            data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.all(path, inputs.allowedPaths.exists(allowed, allowed == path))
+          message: The pushed diff is empty or contains a path outside the accepted recipe proposal.
+          severity: high
+      - name: create-packet
+        dependsOn:
+          - step: assert-pushed-diff-scoped
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: mere-change-packets-20260821
+          methodName: create
+          inputs:
+            targetRepository: jhuntwork/merelinux
+            sourceRepository: jhuntwork/merelinux
+            base:
+              ref: main
+              sha: ${{ inputs.baseSha }}
+            head:
+              ref: ${{ inputs.branch }}
+              sha: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+            changedPaths: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
+            checks:
+              - name: recipe-validation
+                required: true
+                outcome: passed
+                evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/validate-recipe" }}
+                detail: The selected recipe validated, built, imported, installed, and passed its exact-argv smoke check.
+            submission:
+              title: ${{ inputs.title }}
+              body: ${{ inputs.body }}
+              draft: ${{ inputs.draft }}
+        dataOutputOverrides:
+          - specName: packet
+            lifetime: workflow
+      - name: verify-packet
+        dependsOn:
+          - step: create-packet
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: mere-change-packets-20260821
+          methodName: verify
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "mere-change-packets-20260821" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+      - name: assert-packet-valid
+        dependsOn:
+          - step: verify-packet
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "mere-change-packets-20260821" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.valid == true &&
+            data.query('modelName == "mere-change-packets-20260821" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.readiness.ready == true
+          message: The MereLinux delivery packet failed integrity or readiness verification.
+          severity: high
+      - name: plan-pr
+        dependsOn:
+          - step: assert-packet-valid
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.prModel }}
+          methodName: planPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "mere-change-packets-20260821" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+      - name: apply-pr
+        dependsOn:
+          - step: plan-pr
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.prModel }}
+          methodName: applyPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "mere-change-packets-20260821" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            plan: >-
+              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+      - name: verify-pr
+        dependsOn:
+          - step: apply-pr
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.prModel }}
+          methodName: verifyPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "mere-change-packets-20260821" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            result: >-
+              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}

@@ -77,6 +77,36 @@ swamp model create @jeremy/mere-dev mere-local \
 | `mereBinaryPath` | `""` | Optional existing Mere binary; when set, skips download and runs that exact binary. |
 | `mereRoot` | auto | Dedicated root path. Defaults to `$SWAMP_REPO_DIR/.swamp/mere-dev/root`. |
 
+## Packaged `merelinux-change` workflow
+
+The package includes the canonical end-to-end workflow for publishable changes
+to `github.com/jhuntwork/merelinux`. It prepares a fresh branch from an explicit
+main commit, suspends for scoped implementation, and then requires this complete
+recipe contribution path before review delivery:
+
+1. validate the selected `recipe.kdl`;
+2. build it in Mere's isolated build environment;
+3. import the built outputs into a named local repository;
+4. install an explicit package set into an isolated `@jeremy/mere-shell` profile;
+5. run an exact argv smoke check without shell interpretation;
+6. commit only approved paths, push without force, create and verify a change packet,
+   and create and read back a pull request.
+
+The workflow intentionally packages no model instances, repository credentials,
+or vault values. Before running it, create:
+
+- an `@jeremy/mere-dev` binding (default name `merelinux-recipe-validation`);
+- an `@jeremy/mere-shell` binding (default name `merelinux-recipe-smoke`) using
+  the same `mereRoot` and Mere version;
+- an `@jeremy/github-pr` binding (default name `merelinux-pr`) scoped to
+  `jhuntwork/merelinux` and the operator's vault credential;
+- a forge-neutral change-packet binding named `mere-change-packets-20260821`,
+  or adapt the installed workflow to the workspace's compatible packet binding.
+
+The installed workflow verifies that the development and smoke bindings actually
+reported the same root and Mere version. Alternative binding names can be passed
+through `devModel`, `shellModel`, and `prModel` workflow inputs.
+
 ## How it works
 
 1. Downloads the mere binary (cached by version)
