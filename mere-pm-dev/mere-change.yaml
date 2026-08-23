@@ -127,8 +127,8 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0
+            data.findBySpec("mere-pm-" + run.id, "test-result")[0].attributes.success == true &&
+            data.findBySpec("mere-pm-" + run.id, "test-result")[0].attributes.exitCode == 0
           message: Full Mere source validation failed.
           severity: high
       - name: portable-build
@@ -151,9 +151,9 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0 &&
-            data.latest("mere-pm-" + run.id, "current").attributes.baseline == true
+            data.findBySpec("mere-pm-" + run.id, "baseline-build-result")[0].attributes.success == true &&
+            data.findBySpec("mere-pm-" + run.id, "baseline-build-result")[0].attributes.exitCode == 0 &&
+            data.findBySpec("mere-pm-" + run.id, "baseline-build-result")[0].attributes.baseline == true
           message: Portable baseline build failed.
           severity: high
       - name: smoke
@@ -176,9 +176,9 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("mere-pm-" + run.id, "current").attributes.success == true &&
-            data.latest("mere-pm-" + run.id, "current").attributes.exitCode == 0 &&
-            data.latest("mere-pm-" + run.id, "current").attributes.stderr == ""
+            data.findBySpec("mere-pm-" + run.id, "smoke-result")[0].attributes.success == true &&
+            data.findBySpec("mere-pm-" + run.id, "smoke-result")[0].attributes.exitCode == 0 &&
+            data.findBySpec("mere-pm-" + run.id, "smoke-result")[0].attributes.stderr == ""
           message: Built Mere CLI smoke failed.
           severity: high
       - name: commit

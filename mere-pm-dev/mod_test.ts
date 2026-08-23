@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { fixedArgv, truncate } from "./mod.ts";
+import { fixedArgv, resultIdentity, truncate } from "./mod.ts";
 
 Deno.test("fixedArgv keeps package-manager validation commands bounded", () => {
   assertEquals(fixedArgv("build"), ["zig", "build"]);
@@ -11,6 +11,13 @@ Deno.test("fixedArgv keeps package-manager validation commands bounded", () => {
     "-Dcpu=baseline",
   ]);
   assertEquals(fixedArgv("smoke"), ["./zig-out/bin/mere", "describe"]);
+});
+
+Deno.test("each method has a distinct stable result identity", () => {
+  assertEquals(resultIdentity("build"), "build-result");
+  assertEquals(resultIdentity("test"), "test-result");
+  assertEquals(resultIdentity("releaseBuild"), "baseline-build-result");
+  assertEquals(resultIdentity("smoke"), "smoke-result");
 });
 
 Deno.test("truncate declares whether bounded output was capped", () => {
