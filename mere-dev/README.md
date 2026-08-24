@@ -73,7 +73,7 @@ swamp model create @jeremy/mere-dev mere-local \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `mereVersion` | `"latest"` | Mere version to use. Resolves from Codeberg releases API. |
+| `mereVersion` | `"latest"` | Mere version to use. Resolves from the GitHub releases API. |
 | `mereBinaryPath` | `""` | Optional existing Mere binary; when set, skips download and runs that exact binary. |
 | `mereRoot` | auto | Dedicated root path. Defaults to `$SWAMP_REPO_DIR/.swamp/mere-dev/root`. |
 
@@ -97,7 +97,8 @@ or vault values. Before running it, create:
 
 - an `@jeremy/mere-dev` binding (default name `merelinux-recipe-validation`);
 - an `@jeremy/mere-shell` binding (default name `merelinux-recipe-smoke`) using
-  the same `mereRoot` and Mere version;
+  the same `mereRoot` and Mere version; pin both bindings when reproducibility is
+  required, while `latest` resolves from the same hosted GitHub release source;
 - an `@jeremy/github-pr` binding (default name `merelinux-pr`) scoped to
   `jhuntwork/merelinux` and the operator's vault credential;
 - a forge-neutral change-packet binding named `mere-change-packets-20260821`,

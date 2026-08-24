@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.08.23.1"
+version: "2026.08.23.2"
 description: >
   Build and validate Mere recipes and package the canonical MereLinux recipe
   delivery workflow. Invokes mere directly without a shell wrapper; installed

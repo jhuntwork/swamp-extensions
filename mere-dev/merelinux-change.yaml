@@ -270,7 +270,7 @@ jobs:
           inputs:
             packages: ${{ inputs.packages }}
             argv: ${{ inputs.smokeArgv }}
-            workdir: ${{ inputs.worktreePath }}
+            workdir: /
       - name: assert-smoke-succeeded
         dependsOn:
           - step: smoke-installed-packages
