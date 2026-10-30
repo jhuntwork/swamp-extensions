@@ -1,0 +1,29 @@
+manifestVersion: 1
+name: "@jeremy/pi-package-validation"
+version: "2026.10.30.1"
+description: >
+  Commit-bound validation for Pi packages: fixed npm tests, pack manifests,
+  deterministic package-content digests, and a bounded marker-only native Pi
+  smoke. It does not publish, install, deploy, or expose command execution.
+repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
+paths:
+  base: manifest
+models:
+  - mod.ts
+workflows: []
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - README.md
+  - mod_test.ts
+  - LICENSE.txt
+labels:
+  - pi
+  - package
+  - validation
+  - evidence
+  - smoke
+dependencies: []
