@@ -296,7 +296,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.08.23.2",
+  version: "2026.11.02.1",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -331,6 +331,14 @@ export const model = {
       toVersion: "2026.08.23.2",
       description:
         "Resolve and download hosted Mere releases from GitHub so recipe validation matches installed-profile smoke tests.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.11.02.1",
+      description:
+        'Write each result under its own spec name instead of a shared "current" instance, so a later method no longer supersedes an earlier result in the same workflow. No globalArguments changes.',
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
@@ -419,7 +427,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "validation-result",
-            "current",
+            "validation-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -438,7 +446,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "validation-result",
-            "current",
+            "validation-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -489,7 +497,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "import-result",
-            "current",
+            "import-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -508,7 +516,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "import-result",
-            "current",
+            "import-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -577,7 +585,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "build-result",
-            "current",
+            "build-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -604,7 +612,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "build-result",
-            "current",
+            "build-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -633,7 +641,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "signing-key-status",
-            "current",
+            "signing-key-status",
             result,
           );
           return { dataHandles: [handle] };
@@ -648,7 +656,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "signing-key-status",
-            "current",
+            "signing-key-status",
             result,
           );
           return { dataHandles: [handle] };
@@ -672,7 +680,7 @@ export const model = {
           if (before.ready) {
             const handle = await context.writeResource(
               "signing-key-status",
-              "current",
+              "signing-key-status",
               {
                 ...before,
                 generated: false,
@@ -703,7 +711,7 @@ export const model = {
           }
           const handle = await context.writeResource(
             "signing-key-status",
-            "current",
+            "signing-key-status",
             {
               ...after,
               generated: true,
@@ -722,7 +730,7 @@ export const model = {
           };
           const handle = await context.writeResource(
             "signing-key-status",
-            "current",
+            "signing-key-status",
             result,
           );
           return { dataHandles: [handle] };
@@ -803,7 +811,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "hash-result",
-            "current",
+            "hash-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -825,7 +833,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "hash-result",
-            "current",
+            "hash-result",
             result,
           );
           return { dataHandles: [handle] };
@@ -887,7 +895,7 @@ export const model = {
             };
             const handle = await context.writeResource(
               "dev-log",
-              "current",
+              "dev-log",
               result,
             );
             return { dataHandles: [handle] };
@@ -920,7 +928,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "dev-log",
-            "current",
+            "dev-log",
             result,
           );
           return { dataHandles: [handle] };
@@ -939,7 +947,7 @@ export const model = {
 
           const handle = await context.writeResource(
             "dev-log",
-            "current",
+            "dev-log",
             result,
           );
           return { dataHandles: [handle] };
