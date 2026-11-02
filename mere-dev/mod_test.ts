@@ -84,3 +84,18 @@ Deno.test({
     assertEquals(output.success, false);
   },
 });
+
+Deno.test("each result resource is written under its own spec name", async () => {
+  // The workflow queries by specName within one run. Writing every spec to the
+  // same instance name ("current") makes each write supersede the previous
+  // spec's record, so an earlier result (for example validation-result) is
+  // unreachable once a later method runs in the same workflow.
+  const source = await Deno.readTextFile(new URL("./mod.ts", import.meta.url));
+  const writes = [
+    ...source.matchAll(/writeResource\(\s*"([a-z-]+)",\s*"([a-z-]+)"/g),
+  ];
+  assertEquals(writes.length > 0, true);
+  for (const [, spec, instance] of writes) {
+    assertEquals(instance, spec, `${spec} must not share an instance name`);
+  }
+});
