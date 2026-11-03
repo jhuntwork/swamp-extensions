@@ -316,7 +316,8 @@ jobs:
           inputs:
             packet: >-
               ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-            plan: ${{ data.findBySpec(inputs.prModel, "plan")[0].attributes }}
+            plan: >-
+              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
       - name: verify-pr
         dependsOn:
           - step: apply-pr
@@ -329,4 +330,5 @@ jobs:
           inputs:
             packet: >-
               ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-            result: ${{ data.findBySpec(inputs.prModel, "applied")[0].attributes }}
+            result: >-
+              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
