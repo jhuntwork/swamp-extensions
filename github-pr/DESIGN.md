@@ -16,13 +16,26 @@ A model instance must require:
 - `repository`: exact `owner/name` target repository;
 - `baseBranch`: exact permitted target branch;
 - `expectedActor`: exact authenticated GitHub login expected from `/user`;
-- `token`: sensitive vault-backed token.
+- `authMode`: `token` (the default) or `gh`;
+- `token`: sensitive vault-backed token when `authMode` is `token`.
 
-The API origin is fixed to `https://api.github.com`; callers cannot configure an
-alternate base URL. The token must not be logged or returned. Documentation
-recommends a fine-grained token limited to the one repository, with only the
-minimum Pull requests/Contents/Metadata permissions necessary for the tested
-operations.
+In `gh` mode, the adapter invokes `gh api --hostname github.com` directly and
+uses the active CLI login. It never reads or stores the CLI token. The API
+origin remains fixed to `https://api.github.com`; callers cannot configure an
+alternate base URL. Token mode recommends a fine-grained token limited to the
+one repository, with only the minimum Pull requests/Contents/Metadata
+permissions necessary for the tested operations.
+
+## Authentication transport
+
+Every read and write uses one request abstraction. Token mode sends the
+GitHub API request with the vault-backed bearer token. `gh` mode sends the same
+endpoint and typed fields to `gh api` as separate process arguments. No shell
+parsing is used, and neither mode logs credentials.
+
+The two transports share response validation and the 422 duplicate-PR
+read-back path, so changing authentication does not change the packet or
+approval invariants.
 
 ## Draft handling
 
@@ -100,13 +113,14 @@ applied plan. Its resource is the durable submission receipt.
 
 ## Required tests
 
-All HTTP tests use a fetch mock; no test uses a real token or GitHub request.
-Cover successful same-repository preflight/plan/apply/verify; token actor
-mismatch; repository/base mismatch; stale base or head SHA; invalid/unready or
-tampered packet; fork rejection; pre-existing matching PR; POST payload carrying
-the requested draft state in both directions; a plan whose draft state disagrees
-with its packet; read-back verification failure including draft-state drift; and
-an already-exists race response.
+All HTTP tests use a fetch mock; gh-mode tests use an injected command runner,
+so no test uses a real token, CLI credential, or GitHub request. Cover
+successful same-repository preflight/plan/apply/verify in both transports;
+token actor mismatch; repository/base mismatch; stale base or head SHA;
+invalid/unready or tampered packet; fork rejection; pre-existing matching PR;
+POST payload carrying the requested draft state in both directions; a plan
+whose draft state disagrees with its packet; read-back verification failure
+including draft-state drift; and an already-exists race response.
 
 ## Non-goals
 

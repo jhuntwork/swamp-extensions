@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4.4.3";
+import { FetchLike, GhRunner, githubJson } from "./auth.ts";
 import { Packet, requirePacket } from "./packet.ts";
 import { preflight, PreflightConfigSchema } from "./preflight.ts";
 
@@ -30,27 +31,6 @@ export const PlanSchema = z.object({
 
 export type Plan = z.infer<typeof PlanSchema>;
 
-type FetchLike = typeof fetch;
-
-async function getJson(
-  fetchImpl: FetchLike,
-  token: string,
-  path: string,
-): Promise<unknown> {
-  const response = await fetchImpl(`https://api.github.com${path}`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "jeremy-swamp-github-pr",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub plan ${path} failed with HTTP ${response.status}`);
-  }
-  return await response.json();
-}
-
 async function sha256(text: string): Promise<string> {
   const hash = await crypto.subtle.digest(
     "SHA-256",
@@ -67,6 +47,7 @@ export async function planPr(
   rawConfig: unknown,
   rawPacket: unknown,
   fetchImpl: FetchLike = fetch,
+  ghRunner?: GhRunner,
 ): Promise<Plan> {
   const config = PreflightConfigSchema.parse(rawConfig);
   const packet: Packet = await requirePacket(rawPacket);
@@ -82,14 +63,16 @@ export async function planPr(
     throw new Error("Packet base ref does not match bound baseBranch");
   }
 
-  await preflight(config, fetchImpl);
+  await preflight(config, fetchImpl, undefined, ghRunner);
 
-  const head = await getJson(
-    fetchImpl,
-    config.token,
+  const head = await githubJson(
+    config,
     `/repos/${config.repository}/git/ref/heads/${
       encodeURIComponent(packet.head.ref)
     }`,
+    {},
+    fetchImpl,
+    ghRunner,
   ) as { object?: { sha?: unknown } };
   const headSha = typeof head.object?.sha === "string"
     ? head.object.sha.toLowerCase()
@@ -105,10 +88,12 @@ export async function planPr(
     base: packet.base.ref,
     per_page: "100",
   });
-  const pulls = await getJson(
-    fetchImpl,
-    config.token,
+  const pulls = await githubJson(
+    config,
     `/repos/${config.repository}/pulls?${query}`,
+    {},
+    fetchImpl,
+    ghRunner,
   ) as Array<{ number?: unknown; html_url?: unknown }>;
   const existing = pulls.length === 0 ? null : pulls[0];
 

@@ -1,8 +1,7 @@
 import { z } from "npm:zod@4.4.3";
+import { FetchLike, GhRunner, GithubApiError, githubJson } from "./auth.ts";
 import { planPr, PlanSchema } from "./plan.ts";
 import { requirePacket } from "./packet.ts";
-
-type FetchLike = typeof fetch;
 
 export const ApplyResultSchema = z.object({
   number: z.number().int().positive(),
@@ -28,6 +27,7 @@ export async function applyPr(
   rawPacket: unknown,
   rawPlan: unknown,
   fetchImpl: FetchLike = fetch,
+  ghRunner?: GhRunner,
 ): Promise<z.infer<typeof ApplyResultSchema>> {
   const packet = await requirePacket(rawPacket);
   const approved = PlanSchema.parse(rawPlan);
@@ -48,7 +48,7 @@ export async function applyPr(
   }
 
   // Re-plan only to re-read current refs and discover a concurrent existing PR.
-  const current = await planPr(config, packet, fetchImpl);
+  const current = await planPr(config, packet, fetchImpl, ghRunner);
   if (current.existingPullRequest) {
     return ApplyResultSchema.parse({
       number: current.existingPullRequest.number,
@@ -58,34 +58,29 @@ export async function applyPr(
     });
   }
 
-  const parsed = z.object({ repository: z.string(), token: z.string() }).parse(
-    config,
-  );
-  const response = await fetchImpl(
-    `https://api.github.com/repos/${parsed.repository}/pulls`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${parsed.token}`,
-        "Content-Type": "application/json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "jeremy-swamp-github-pr",
+  let created: unknown;
+  try {
+    created = await githubJson(
+      config,
+      `/repos/${approved.repository}/pulls`,
+      {
+        method: "POST",
+        body: {
+          title: approved.title,
+          head: approved.head.ref,
+          base: approved.base.ref,
+          body: approved.body,
+          draft: approved.draft,
+        },
       },
-      body: JSON.stringify({
-        title: approved.title,
-        head: approved.head.ref,
-        base: approved.base.ref,
-        body: approved.body,
-        draft: approved.draft,
-      }),
-    },
-  );
-  if (!response.ok) {
-    if (response.status === 422) {
+      fetchImpl,
+      ghRunner,
+    );
+  } catch (error) {
+    if (error instanceof GithubApiError && error.status === 422) {
       // GitHub can report a concurrent duplicate as unprocessable. Perform
       // exactly one read-back before surfacing the failure.
-      const raced = await planPr(config, packet, fetchImpl);
+      const raced = await planPr(config, packet, fetchImpl, ghRunner);
       if (raced.existingPullRequest) {
         return ApplyResultSchema.parse({
           number: raced.existingPullRequest.number,
@@ -95,17 +90,16 @@ export async function applyPr(
         });
       }
     }
-    throw new Error(
-      `GitHub pull request creation failed with HTTP ${response.status}`,
-    );
+    throw error;
   }
-  const created = await response.json() as {
+
+  const response = created as {
     number?: unknown;
     html_url?: unknown;
   };
   return ApplyResultSchema.parse({
-    number: created.number,
-    url: created.html_url,
+    number: response.number,
+    url: response.html_url,
     created: true,
     draft: approved.draft,
   });

@@ -8,6 +8,20 @@ verify its identity.
 It does not merge, release, update PRs, mark them ready, administer
 repositories, or call arbitrary GitHub endpoints.
 
+## Authentication
+
+The adapter supports two authentication modes:
+
+- `token` is the default and uses a sensitive vault-backed GitHub token. This
+  preserves the original behavior for existing definitions.
+- `gh` uses the active `gh` CLI login. The CLI token is never copied into Swamp
+  arguments or data. The `gh` binary is invoked directly with an argument array,
+  without a shell.
+
+The model still checks `expectedActor` against GitHub's authenticated `/user`
+result in either mode. Run `gh auth status` first and bind the model to the
+active account's login when using `authMode=gh`.
+
 ## Draft is requested per packet
 
 An ordinary reviewable pull request is the default. A packet may set
@@ -30,17 +44,25 @@ proposal → branch → implementation → validation → scoped commit → push
 
 V1 supports only a same-repository branch. Fork packets are rejected explicitly.
 A model instance is bound to exact `repository`, `baseBranch`, and
-`expectedActor` values; its token is sensitive and should be retrieved from a
-vault.
+`expectedActor` values.
 
 ```bash
-swamp model create @jeremy/github-pr mere-pr \
-  --global-arg repository=jhuntwork/mere \
-  --global-arg baseBranch=main \
-  --global-arg expectedActor=delivery-bot \
+# Vault-backed token mode (the default, retained for existing definitions).
+swamp behavior create @jeremy/github-pr mere-pr \\
+  --global-arg repository=jhuntwork/mere \\
+  --global-arg baseBranch=main \\
+  --global-arg expectedActor=delivery-bot \\
   --global-arg 'token=${{ vault.get("github", "MERE_PR") }}'
 
-swamp model method run mere-pr planPr --input 'packet:json={...}'
+# Authenticated gh CLI mode.
+swamp behavior create @jeremy/github-pr mere-pr-gh \\
+  --global-arg repository=jhuntwork/mere \\
+  --global-arg baseBranch=main \\
+  --global-arg expectedActor=jhuntwork \\
+  --global-arg authMode=gh
+
+swamp behavior run mere-pr-gh preflight
+swamp behavior run mere-pr-gh planPr --input 'packet:json={...}'
 ```
 
 Run `applyPr` only from the post-approval workflow segment, then pass its

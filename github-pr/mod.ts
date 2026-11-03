@@ -24,7 +24,8 @@ type Context = {
 
 /**
  * Narrow GitHub.com same-repository pull-request model. It never merges or
- * releases.
+ * releases. Authentication can come from a vault-backed token or the active
+ * GitHub CLI login.
  *
  * Draft is a property of the packet, not of this adapter: a packet requesting
  * `submission.draft` gets a draft, and one that does not gets an ordinary pull
@@ -33,12 +34,19 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.08.21.1",
+  version: "2026.11.03.1",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
     description:
       "Permit candidate-base provenance to remain valid when the remote base branch advances before PR planning.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.03.1",
+    description:
+      "Allow GitHub API calls through the authenticated gh CLI while preserving token authentication.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
