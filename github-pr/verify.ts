@@ -1,9 +1,8 @@
 import { z } from "npm:zod@4.4.3";
-import { ApplyResultSchema } from "./apply.ts";
+import { FetchLike, GhRunner, githubJson } from "./auth.ts";
 import { requirePacket } from "./packet.ts";
+import { ApplyResultSchema } from "./apply.ts";
 import { PreflightConfigSchema } from "./preflight.ts";
-
-type FetchLike = typeof fetch;
 
 export const VerificationSchema = z.object({
   number: z.number().int().positive(),
@@ -18,26 +17,18 @@ export async function verifyPr(
   rawPacket: unknown,
   rawResult: unknown,
   fetchImpl: FetchLike = fetch,
+  ghRunner?: GhRunner,
 ): Promise<z.infer<typeof VerificationSchema>> {
   const config = PreflightConfigSchema.parse(rawConfig);
   const packet = await requirePacket(rawPacket);
   const result = ApplyResultSchema.parse(rawResult);
-  const response = await fetchImpl(
-    `https://api.github.com/repos/${config.repository}/pulls/${result.number}`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${config.token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `GitHub PR verification failed with HTTP ${response.status}`,
-    );
-  }
-  const pr = await response.json() as {
+  const pr = await githubJson(
+    config,
+    `/repos/${config.repository}/pulls/${result.number}`,
+    {},
+    fetchImpl,
+    ghRunner,
+  ) as {
     html_url?: unknown;
     draft?: unknown;
     title?: unknown;

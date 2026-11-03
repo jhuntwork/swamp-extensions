@@ -1,12 +1,26 @@
 import { z } from "npm:zod@4.4.3";
-
-const API_ORIGIN = "https://api.github.com";
+import {
+  AuthModeSchema,
+  FetchLike,
+  GhRunner,
+  githubJson,
+  TokenSchema,
+} from "./auth.ts";
 
 export const PreflightConfigSchema = z.object({
   repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
   baseBranch: z.string().min(1).max(255).refine((value) => !/\s/.test(value)),
   expectedActor: z.string().min(1).max(255),
-  token: z.string().min(1).meta({ sensitive: true }),
+  authMode: AuthModeSchema,
+  token: TokenSchema,
+}).superRefine((config, ctx) => {
+  if (config.authMode === "token" && !config.token) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["token"],
+      message: "token is required when authMode is token",
+    });
+  }
 });
 
 export const PreflightResultSchema = z.object({
@@ -18,55 +32,33 @@ export const PreflightResultSchema = z.object({
   baseSha: z.string().regex(/^[0-9a-f]{40,64}$/),
 });
 
-type PreflightConfig = z.infer<typeof PreflightConfigSchema>;
-type FetchLike = typeof fetch;
-
-function endpoint(path: string): string {
-  return `${API_ORIGIN}${path}`;
-}
-
-async function getJson(
-  fetchImpl: FetchLike,
-  config: PreflightConfig,
-  path: string,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const response = await fetchImpl(endpoint(path), {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${config.token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "jeremy-swamp-github-pr",
-    },
-    signal,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `GitHub preflight ${path} failed with HTTP ${response.status}`,
-    );
-  }
-  return await response.json();
-}
-
 /** Verify the actor, bound repository, and configured base branch without mutation. */
 export async function preflight(
   rawConfig: unknown,
   fetchImpl: FetchLike = fetch,
   signal?: AbortSignal,
+  ghRunner?: GhRunner,
 ): Promise<z.infer<typeof PreflightResultSchema>> {
   const config = PreflightConfigSchema.parse(rawConfig);
-  const actor = await getJson(fetchImpl, config, "/user", signal) as {
+  const actor = await githubJson(
+    config,
+    "/user",
+    { signal },
+    fetchImpl,
+    ghRunner,
+  ) as {
     login?: unknown;
   };
   if (actor.login !== config.expectedActor) {
     throw new Error("GitHub authenticated actor does not match expectedActor");
   }
 
-  const repository = await getJson(
-    fetchImpl,
+  const repository = await githubJson(
     config,
     `/repos/${config.repository}`,
-    signal,
+    { signal },
+    fetchImpl,
+    ghRunner,
   ) as {
     id?: unknown;
     full_name?: unknown;
@@ -78,13 +70,14 @@ export async function preflight(
     );
   }
 
-  const ref = await getJson(
-    fetchImpl,
+  const ref = await githubJson(
     config,
     `/repos/${config.repository}/git/ref/heads/${
       encodeURIComponent(config.baseBranch)
     }`,
-    signal,
+    { signal },
+    fetchImpl,
+    ghRunner,
   ) as { object?: { sha?: unknown } };
 
   return PreflightResultSchema.parse({
