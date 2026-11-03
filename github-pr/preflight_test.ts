@@ -10,7 +10,10 @@ const config = {
 
 function fetchMock(routes: Record<string, { status?: number; body: unknown }>) {
   const calls: Array<{ url: string; authorization: string | null }> = [];
-  const fetchImpl: typeof fetch = (input, init) => {
+  const fetchImpl = ((
+    input: string | URL | Request,
+    init?: { headers?: HeadersInit },
+  ) => {
     const url = typeof input === "string"
       ? input
       : input instanceof URL
@@ -20,7 +23,9 @@ function fetchMock(routes: Record<string, { status?: number; body: unknown }>) {
     if (!route) throw new Error(`Unexpected GitHub mock route: ${url}`);
     calls.push({
       url,
-      authorization: new Headers(init?.headers).get("Authorization"),
+      authorization: new Headers(
+        init?.headers as HeadersInit | undefined,
+      ).get("Authorization"),
     });
     return Promise.resolve(
       new Response(
@@ -31,7 +36,7 @@ function fetchMock(routes: Record<string, { status?: number; body: unknown }>) {
         },
       ),
     );
-  };
+  }) as typeof fetch;
   return { fetchImpl, calls };
 }
 
