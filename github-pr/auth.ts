@@ -36,7 +36,6 @@ export type GhRunner = (
 
 /** Run gh without a shell so endpoint and field values stay argument-bound. */
 export const runGh: GhRunner = async (args, signal) => {
-  // swamp-quality-ignore deno-command
   const output = await new Deno.Command("gh", {
     args: [...args],
     stdout: "piped",

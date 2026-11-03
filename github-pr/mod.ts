@@ -34,7 +34,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.03.1",
+  version: "2026.11.03.2",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -47,6 +47,13 @@ export const model = {
     toVersion: "2026.11.03.1",
     description:
       "Allow GitHub API calls through the authenticated gh CLI while preserving token authentication.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.03.2",
+    description:
+      "Remove stale quality metadata while retaining the authenticated gh transport.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
