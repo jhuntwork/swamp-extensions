@@ -2,7 +2,7 @@ import { deepStrictEqual, rejects } from "node:assert/strict";
 export const assertEquals: typeof deepStrictEqual = deepStrictEqual;
 export async function assertRejects(
   operation: () => Promise<unknown>,
-  errorType: typeof Error,
+  errorType: new (...args: never[]) => Error,
   message: string,
 ) {
   await rejects(

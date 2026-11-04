@@ -1,8 +1,37 @@
 import { z } from "npm:zod@4.1.12";
 import { blake3 } from "npm:@noble/hashes@2.0.1/blake3.js";
 import { join } from "node:path";
+import {
+  candidateUrl,
+  isNewer,
+  type LookupInput,
+  lookupLatest,
+  RateLimited,
+} from "./_lib/upstream.ts";
+import { runCommand } from "./_lib/runner.ts";
+
+const GlobalArgs = z.object({
+  githubToken: z.string().default("").meta({ sensitive: true }).describe(
+    "Optional. Falls back to GITHUB_TOKEN, GH_TOKEN, then `gh auth token`.",
+  ),
+  anityaBaseUrl: z.string().url().default("https://release-monitoring.org"),
+});
 
 const FetchHashArgs = z.object({ url: z.string().url() });
+const UpstreamSchema = z.object({
+  name: z.string(),
+  currentVersion: z.string(),
+  latestVersion: z.string().optional(),
+  isNewer: z.boolean(),
+  provider: z.enum(["github", "anitya", "none"]),
+  projectId: z.number().int().optional(),
+  candidateUrl: z.string().optional(),
+  note: z.string().optional(),
+  checkedAt: z.string(),
+  durationMs: z.number().nonnegative(),
+  schemaVersion: z.literal(1),
+});
+
 const ArtifactSchema = z.object({
   url: z.string(),
   resolvedUrl: z.string(),
@@ -193,12 +222,133 @@ export async function downloadArtifact(
   }
 }
 
+const LatestArgs = z.object({
+  name: z.string().min(1),
+  currentVersion: z.string().min(1),
+  url: z.string().default(""),
+  sourceUrl: z.string().default(""),
+  anityaProjectId: z.number().int().optional(),
+});
+
+const ScanLatestArgs = z.object({
+  recipeBinding: z.string().min(1).default("merelinux"),
+  concurrency: z.number().int().min(1).max(16).default(4),
+});
+
+type UpstreamContext = {
+  signal: AbortSignal;
+  globalArgs: z.infer<typeof GlobalArgs>;
+  writeResource: (
+    spec: string,
+    name: string,
+    data: Record<string, unknown>,
+  ) => Promise<{ name: string }>;
+  readModelData: (
+    name: string,
+    spec?: string,
+  ) => Promise<{ attributes: Record<string, unknown> }[]>;
+  fetcher?: typeof fetch;
+};
+
+/** Explicit token, then GITHUB_TOKEN / GH_TOKEN, then `gh auth token`. */
+export async function resolveGithubToken(
+  configured: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  if (configured) return configured;
+  const fromEnv = Deno.env.get("GITHUB_TOKEN") || Deno.env.get("GH_TOKEN");
+  if (fromEnv) return fromEnv;
+  try {
+    const result = await runCommand("gh", ["auth", "token"], {
+      signal,
+      timeoutMs: 10_000,
+    });
+    const token = result.stdout.trim();
+    return result.exitCode === 0 && token ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function providersFor(context: UpstreamContext) {
+  const globals = GlobalArgs.parse(context.globalArgs);
+  return {
+    fetcher: context.fetcher ?? fetch,
+    githubToken: await resolveGithubToken(globals.githubToken, context.signal),
+    anityaBaseUrl: globals.anityaBaseUrl,
+    signal: AbortSignal.any([context.signal, AbortSignal.timeout(300_000)]),
+  };
+}
+
+export function recipeToInput(a: Record<string, unknown>): LookupInput {
+  const sources = (a.sources ?? []) as {
+    url: string;
+    isLocal: boolean;
+    interpolatesVersion: boolean;
+  }[];
+  const remote = sources.filter((s) => !s.isLocal);
+  const source = remote.find((s) => s.interpolatesVersion) ?? remote[0];
+  return {
+    name: String(a.name),
+    currentVersion: String(a.version),
+    url: String(a.url ?? ""),
+    sourceUrl: source?.url ?? "",
+  };
+}
+
+async function lookupOne(
+  input: LookupInput,
+  providers: Awaited<ReturnType<typeof providersFor>>,
+  context: UpstreamContext,
+  state: { rateLimited: boolean } = { rateLimited: false },
+) {
+  const started = performance.now();
+  let result: Awaited<ReturnType<typeof lookupLatest>>;
+  try {
+    if (state.rateLimited) {
+      result = { provider: "none", note: "skipped: GitHub rate limit reached" };
+    } else {
+      result = await lookupLatest(input, providers);
+    }
+  } catch (error) {
+    if (error instanceof RateLimited) state.rateLimited = true;
+    result = {
+      provider: "none",
+      note: (error instanceof Error ? error.message : String(error)).slice(
+        0,
+        300,
+      ),
+    };
+  }
+  return await context.writeResource("upstream", `upstream-${input.name}`, {
+    name: input.name,
+    currentVersion: input.currentVersion,
+    ...(result.latestVersion ? { latestVersion: result.latestVersion } : {}),
+    isNewer: isNewer(input.currentVersion, result.latestVersion),
+    provider: result.provider,
+    ...(result.projectId !== undefined ? { projectId: result.projectId } : {}),
+    ...(candidateUrl(input.sourceUrl, result.latestVersion)
+      ? { candidateUrl: candidateUrl(input.sourceUrl, result.latestVersion) }
+      : {}),
+    ...(result.note ? { note: result.note } : {}),
+    checkedAt: new Date().toISOString(),
+    durationMs: performance.now() - started,
+    schemaVersion: 1,
+  });
+}
+
 export const behavior = {
   type: "@jeremy/mere/source",
   version: "2026.11.04.1",
   description: "Mere upstream source artifacts. Draft: fetchHash only.",
-  globalArguments: z.object({}),
+  globalArguments: GlobalArgs,
   resources: {
+    upstream: {
+      description: "Latest upstream version of one recipe",
+      schema: UpstreamSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
     artifact: {
       description: "Downloaded source and its BLAKE3 digest",
       schema: ArtifactSchema,
@@ -207,6 +357,65 @@ export const behavior = {
     },
   },
   methods: {
+    latest: {
+      description:
+        "Find the newest stable upstream version of one recipe: GitHub tags " +
+        "(then releases) for github.com sources, else Anitya, matched on the " +
+        "recipe homepage to avoid name collisions.",
+      kind: "read",
+      arguments: LatestArgs,
+      execute: async (
+        args: z.infer<typeof LatestArgs>,
+        context: UpstreamContext,
+      ) => {
+        const providers = await providersFor(context);
+        const handle = await lookupOne(args, providers, context);
+        return { dataHandles: [handle] };
+      },
+    },
+    scanLatest: {
+      description:
+        "Look up the latest upstream version of every recipe in one call " +
+        "(fan-out over a recipe binding's scan data), with bounded " +
+        "concurrency. A failed lookup is recorded as a note on that " +
+        "recipe's upstream resource, never as a failure of the scan.",
+      kind: "read",
+      arguments: ScanLatestArgs,
+      execute: async (
+        args: z.infer<typeof ScanLatestArgs>,
+        context: UpstreamContext,
+      ) => {
+        const providers = await providersFor(context);
+        const records = await context.readModelData(
+          args.recipeBinding,
+          "recipe",
+        );
+        if (records.length === 0) {
+          throw new Error(
+            `no recipe data in "${args.recipeBinding}"; run its scan first`,
+          );
+        }
+        const inputs = records.map((r) => recipeToInput(r.attributes));
+        const handles: { name: string }[] = new Array(inputs.length);
+        let next = 0;
+        const state = { rateLimited: false };
+        await Promise.all(
+          Array.from({ length: args.concurrency }, async () => {
+            while (next < inputs.length) {
+              context.signal.throwIfAborted();
+              const index = next++;
+              handles[index] = await lookupOne(
+                inputs[index],
+                providers,
+                context,
+                state,
+              );
+            }
+          }),
+        );
+        return { dataHandles: handles };
+      },
+    },
     fetchHash: {
       description:
         "Download an HTTPS source and compute BLAKE3 without shell commands. HTTPS redirects are followed (max 5); a verified cache is reused by URL.",
