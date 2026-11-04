@@ -94,3 +94,21 @@ export async function runCommand(
     signal.removeEventListener("abort", abort);
   }
 }
+
+/** Like runCommand, but throws (with a bounded tail) on a nonzero exit. */
+export async function runChecked(
+  command: string,
+  args: string[],
+  options: Parameters<typeof runCommand>[2] = {},
+): Promise<CommandResult> {
+  const result = await runCommand(command, args, options);
+  if (result.exitCode !== 0) {
+    const tail = (result.stderr || result.stdout).trim();
+    throw new Error(
+      `${command} exited with code ${result.exitCode}${
+        tail ? `: ${tail}` : ""
+      }`,
+    );
+  }
+  return result;
+}

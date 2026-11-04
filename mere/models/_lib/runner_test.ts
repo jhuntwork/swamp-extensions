@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "./assert_test.ts";
-import { runCommand } from "./runner.ts";
+import { runChecked, runCommand } from "./runner.ts";
 
 Deno.test("runner drains both pipes and bounds retained output independently", async () => {
   const result = await runCommand(Deno.execPath(), [
@@ -62,4 +62,18 @@ Deno.test("runner cancels a live child after it reports readiness", async () => 
     await pending.catch(() => {});
     await Deno.remove(directory, { recursive: true });
   }
+});
+
+Deno.test("runChecked throws on nonzero exit and returns on zero", async () => {
+  await assertRejects(
+    () =>
+      runChecked(Deno.execPath(), [
+        "eval",
+        'console.error("boom"); Deno.exit(3);',
+      ]),
+    Error,
+    "code 3: boom",
+  );
+  const ok = await runChecked(Deno.execPath(), ["eval", "console.log('hi')"]);
+  assertEquals(ok.stdout.trim(), "hi");
 });

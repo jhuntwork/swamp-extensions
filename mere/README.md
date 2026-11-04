@@ -8,12 +8,16 @@ Implemented:
 - `@jeremy/mere/source.fetchHash`: stream an HTTPS source to a temporary file,
   compute BLAKE3, atomically publish the downloaded file under its digest, and
   emit a typed artifact resource. A failed stream removes its partial file.
-  Every call downloads fresh; cache reuse and redirect handling remain pending.
+  HTTPS redirects are followed by hand (at most 5, every hop must be HTTPS). A
+  per-URL cache is reused only after its bytes are re-hashed and match; a
+  corrupted or missing cache entry is downloaded again.
 - `_lib/runner.ts`: direct argv subprocess execution with cancellation and a
   timeout, concurrent pipe draining, bounded tails, total byte counts, exit
-  code, and elapsed time. Nonzero exit codes are returned for domain methods to
-  handle after saving diagnostics. Cancellation and timeouts reject.
-  Cancellation controls the immediate child, not an entire process tree.
+  code, and elapsed time. `runCommand` returns nonzero exit codes so a method
+  can save diagnostics first; `runChecked` throws on a nonzero exit, which is
+  the default for methods (design rule: methods throw). Cancellation and
+  timeouts reject. Cancellation controls the immediate child, not an entire
+  process tree.
 
 Not implemented: toolchain provisioning, recipe parsing/editing/building,
 upstream version discovery, workflows, reports, signing-key handling, bindings,
