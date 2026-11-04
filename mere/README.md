@@ -27,9 +27,19 @@ Implemented:
   pinned exactly; `latest` is rejected. Provisioning avoids `runModel`, so it
   also works on remote workers.
 
-Not implemented: recipe parsing/editing/building, upstream version discovery,
-workflows, reports, signing-key handling, bindings, serve deployment, and
-registry publication. This package is not ready for use.
+- `@jeremy/mere/recipe`: `read` parses one recipe, `scan` parses the whole tree
+  in one fan-out call (one `recipe-<category>-<name>` resource each, plus a
+  `scan` summary with the commit, recipes that needed normalisation, and any
+  parse failures). Recipes are KDL v1; all 161 in merelinux parse. Two recipes
+  (`bzip2`, `flex`) end a continued list with a backslash before `}`, which
+  strict KDL rejects; the parser drops it and records `normalized: true`.
+  `ensureCheckout` (default true) clones or updates the checkout through
+  `@swamp/git` with `runModel`; set it false on workers and run an
+  `ensure_checkout` step first. Nothing is edited yet.
+
+Not implemented: recipe editing (`setVersion`), validation, building, upstream
+version discovery, workflows, reports, signing-key handling, bindings, serve
+deployment, and registry publication. This package is not ready for use.
 
 ## Validation
 

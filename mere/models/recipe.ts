@@ -1,0 +1,250 @@
+import { z } from "npm:zod@4.1.12";
+import { join } from "node:path";
+import { parseRecipe } from "./_lib/kdl.ts";
+import { runChecked } from "./_lib/runner.ts";
+
+const GlobalArgs = z.object({
+  repoUrl: z.string().url().default(
+    "https://github.com/jhuntwork/merelinux.git",
+  ),
+  ref: z.string().default("main"),
+  checkoutPath: z.string().default("").describe(
+    "Empty derives .swamp/mere/checkouts/merelinux under the repo.",
+  ),
+  ensureCheckout: z.boolean().default(true).describe(
+    "Clone or update the checkout through @swamp/git before reading. Set " +
+      "false where runModel is unavailable (remote workers) and run an " +
+      "ensure_checkout step first.",
+  ),
+});
+
+const SourceSchema = z.object({
+  url: z.string(),
+  resolvedUrl: z.string(),
+  isLocal: z.boolean(),
+  interpolatesVersion: z.boolean(),
+  blake3: z.string().optional(),
+  saveAs: z.string().optional(),
+});
+
+const RecipeSchema = z.object({
+  path: z.string(),
+  category: z.string(),
+  name: z.string(),
+  version: z.string(),
+  release: z.number().int().nonnegative(),
+  description: z.string(),
+  url: z.string(),
+  licenses: z.array(z.string()),
+  archs: z.array(z.string()),
+  depends: z.array(z.string()),
+  env: z.record(z.string(), z.string()),
+  needsRoot: z.boolean(),
+  sources: z.array(SourceSchema),
+  packages: z.array(z.object({
+    name: z.string(),
+    hasService: z.boolean(),
+    hasRealizer: z.boolean(),
+  })),
+  phases: z.array(z.string()),
+  sha256OfFile: z.string(),
+  normalized: z.boolean(),
+  commit: z.string(),
+  schemaVersion: z.literal(1),
+});
+
+const ScanSchema = z.object({
+  commit: z.string(),
+  ref: z.string(),
+  total: z.number().int().nonnegative(),
+  parsed: z.number().int().nonnegative(),
+  normalized: z.array(z.string()),
+  failures: z.array(z.object({ path: z.string(), error: z.string() })),
+  durationMs: z.number().nonnegative(),
+  schemaVersion: z.literal(1),
+});
+
+type Context = {
+  repoDir: string;
+  signal: AbortSignal;
+  globalArgs: z.infer<typeof GlobalArgs>;
+  definition: { name: string };
+  writeResource: (
+    spec: string,
+    name: string,
+    data: Record<string, unknown>,
+  ) => Promise<{ name: string }>;
+  runModel?: (options: Record<string, unknown>) => Promise<
+    { ok: true } | { ok: false; error: { message: string } }
+  >;
+};
+
+export function checkoutDir(repoDir: string, configured: string): string {
+  return configured ||
+    join(repoDir, ".swamp", "mere", "checkouts", "merelinux");
+}
+
+async function prepareCheckout(context: Context): Promise<string> {
+  const globals = GlobalArgs.parse(context.globalArgs);
+  const path = checkoutDir(context.repoDir, globals.checkoutPath);
+  if (globals.ensureCheckout) {
+    if (!context.runModel) {
+      throw new Error(
+        "runModel is unavailable here; set ensureCheckout=false and run an " +
+          "@swamp/git ensure_checkout step first",
+      );
+    }
+    const result = await context.runModel({
+      modelType: "@swamp/git",
+      name: `${context.definition.name}-git`,
+      method: "ensure_checkout",
+      arguments: {
+        repoPath: path,
+        url: globals.repoUrl,
+        path,
+        ref: globals.ref,
+        reset: true,
+      },
+    });
+    if (!result.ok) throw new Error(`ensure_checkout: ${result.error.message}`);
+  }
+  return path;
+}
+
+async function headCommit(path: string, signal: AbortSignal): Promise<string> {
+  const result = await runChecked("git", ["-C", path, "rev-parse", "HEAD"], {
+    signal,
+    timeoutMs: 30_000,
+  });
+  return result.stdout.trim();
+}
+
+const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
+
+export function recipeInstanceName(category: string, name: string): string {
+  return `recipe-${category}-${name}`;
+}
+
+async function listRecipes(root: string): Promise<string[]> {
+  const found: string[] = [];
+  for await (const category of Deno.readDir(join(root, "recipes"))) {
+    if (!category.isDirectory) continue;
+    for await (
+      const entry of Deno.readDir(join(root, "recipes", category.name))
+    ) {
+      if (!entry.isDirectory) continue;
+      const file = join(
+        root,
+        "recipes",
+        category.name,
+        entry.name,
+        "recipe.kdl",
+      );
+      try {
+        await Deno.stat(file);
+        found.push(`recipes/${category.name}/${entry.name}/recipe.kdl`);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+      }
+    }
+  }
+  return found.sort();
+}
+
+export const behavior = {
+  type: "@jeremy/mere/recipe",
+  version: "2026.11.04.1",
+  description: "Read merelinux recipes as structured data.",
+  globalArguments: GlobalArgs,
+  resources: {
+    recipe: {
+      description: "One parsed recipe",
+      schema: RecipeSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    scan: {
+      description:
+        "Outcome of a tree scan, including recipes that failed to parse",
+      schema: ScanSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+  },
+  methods: {
+    read: {
+      description: "Parse one recipe (<category>/<name>) from the checkout.",
+      kind: "read",
+      arguments: z.object({
+        recipe: z.string().regex(RECIPE_PATH, "expected <category>/<name>"),
+      }),
+      execute: async (args: { recipe: string }, context: Context) => {
+        const root = await prepareCheckout(context);
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const text = await Deno.readTextFile(join(root, rel));
+        const parsed = parseRecipe(text, rel);
+        const commit = await headCommit(root, context.signal);
+        const handle = await context.writeResource(
+          "recipe",
+          recipeInstanceName(parsed.category, parsed.name),
+          { ...parsed, commit, schemaVersion: 1 },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    scan: {
+      description:
+        "Parse every recipe in the tree in one pass (one resource per recipe). " +
+        "A recipe that fails to parse is listed in the scan summary rather " +
+        "than hiding the rest; callers decide whether that is fatal.",
+      kind: "read",
+      arguments: z.object({}),
+      execute: async (_args: Record<string, never>, context: Context) => {
+        const started = performance.now();
+        const root = await prepareCheckout(context);
+        const commit = await headCommit(root, context.signal);
+        const handles: { name: string }[] = [];
+        const failures: { path: string; error: string }[] = [];
+        const normalized: string[] = [];
+        let total = 0;
+        for (const rel of await listRecipes(root)) {
+          context.signal.throwIfAborted();
+          total++;
+          try {
+            const parsed = parseRecipe(
+              await Deno.readTextFile(join(root, rel)),
+              rel,
+            );
+            if (parsed.normalized) normalized.push(rel);
+            handles.push(
+              await context.writeResource(
+                "recipe",
+                recipeInstanceName(parsed.category, parsed.name),
+                { ...parsed, commit, schemaVersion: 1 },
+              ),
+            );
+          } catch (error) {
+            failures.push({
+              path: rel,
+              error: (error instanceof Error ? error.message : String(error))
+                .slice(0, 300),
+            });
+          }
+        }
+        handles.push(
+          await context.writeResource("scan", "scan", {
+            commit,
+            ref: GlobalArgs.parse(context.globalArgs).ref,
+            total,
+            parsed: handles.length,
+            normalized,
+            failures,
+            durationMs: performance.now() - started,
+            schemaVersion: 1,
+          }),
+        );
+        return { dataHandles: handles };
+      },
+    },
+  },
+};

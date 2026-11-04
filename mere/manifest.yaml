@@ -8,6 +8,9 @@ paths:
 behaviors:
   - models/source.ts
   - models/toolchain.ts
+  - models/recipe.ts
+dependencies:
+  - "@swamp/git"
 additionalFiles:
   - README.md
   - LICENSE.txt
