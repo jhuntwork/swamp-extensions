@@ -21,7 +21,7 @@ const GlobalArgsSchema = z.object({
     "Dedicated root path for the mere tree. Empty = auto ($SWAMP_REPO_DIR/.swamp/mere-shell/root).",
   ),
   useHostStore: z.boolean().default(false).describe(
-    "Deprecated and rejected. Mere 0.23 namespaces cannot safely expose host /mere/store; use the isolated store instead.",
+    "Use the host Mere root (/), sharing its /mere/store; requires mereRoot to be empty or '/'.",
   ),
 });
 
@@ -171,13 +171,18 @@ async function ensureBinary(
   return binaryPath;
 }
 
-/** Reject the legacy host-store mode before it can affect a Mere root. */
-export function validateStoreMode(useHostStore: boolean): void {
-  if (useHostStore) {
+/** Select the physical Mere root, using `/` to share the host store. */
+export function resolveMereRoot(
+  configuredRoot: string,
+  useHostStore: boolean,
+): string {
+  if (!useHostStore) return configuredRoot;
+  if (configuredRoot !== "" && configuredRoot !== "/") {
     throw new Error(
-      "useHostStore=true is unsupported: Mere 0.23 does not expose host /mere/store inside its shell namespace; use useHostStore=false for an isolated store",
+      "useHostStore=true requires mereRoot to be empty or '/' because Mere exposes <root>/mere as /mere",
     );
   }
+  return "/";
 }
 
 /** Ensure the root has a real store directory visible as /mere/store. */
@@ -186,7 +191,7 @@ export async function ensureRoot(
   mereBinary: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const mereDir = `${mereRoot}/mere`;
+  const mereDir = mereRoot === "/" ? "/mere" : `${mereRoot}/mere`;
   const storeDir = `${mereDir}/store`;
   const configPath = `${mereDir}/config.kdl`;
   const keysDir = `${mereDir}/keys`;
@@ -274,7 +279,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.11.04.1",
+  version: "2026.11.04.2",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -296,9 +301,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.04.1",
+    toVersion: "2026.11.04.2",
     description:
-      "Reject unsafe host-store symlinks and repair legacy roots with an isolated namespace-visible store.",
+      "Use Mere --root / to share the host store instead of creating a self-referential /mere/store symlink.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -341,10 +346,13 @@ export const model = {
         };
         const start = performance.now();
         const repoDir = Deno.env.get("SWAMP_REPO_DIR") || Deno.cwd();
-        const mereRoot = globalArgs.mereRoot ||
+        let mereRoot = globalArgs.mereRoot ||
           `${repoDir}/.swamp/mere-shell/root`;
         try {
-          validateStoreMode(globalArgs.useHostStore);
+          mereRoot = resolveMereRoot(
+            globalArgs.mereRoot,
+            globalArgs.useHostStore,
+          );
           const version = await resolveVersion(
             globalArgs.mereVersion,
             context.signal,

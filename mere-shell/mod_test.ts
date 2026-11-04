@@ -2,18 +2,20 @@ import { assertEquals, assertFalse, assertThrows } from "jsr:@std/assert@1";
 import {
   ensureRoot,
   parseSHA256SUMS,
+  resolveMereRoot,
   runCommand,
   sha256Hex,
   truncate,
-  validateStoreMode,
 } from "./mod.ts";
 
-Deno.test("validateStoreMode supports only the isolated store", () => {
-  validateStoreMode(false);
+Deno.test("resolveMereRoot selects the host root without a symlink", () => {
+  assertEquals(resolveMereRoot("", true), "/");
+  assertEquals(resolveMereRoot("/", true), "/");
+  assertEquals(resolveMereRoot("/tmp/mere-root", false), "/tmp/mere-root");
   assertThrows(
-    () => validateStoreMode(true),
+    () => resolveMereRoot("/tmp/mere-root", true),
     Error,
-    "useHostStore=true is unsupported",
+    "requires mereRoot to be empty or '/'",
   );
 });
 
