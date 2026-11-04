@@ -19,9 +19,17 @@ Implemented:
   timeouts reject. Cancellation controls the immediate child, not an entire
   process tree.
 
-Not implemented: toolchain provisioning, recipe parsing/editing/building,
-upstream version discovery, workflows, reports, signing-key handling, bindings,
-serve deployment, and registry publication. This package is not ready for use.
+- `@jeremy/mere/toolchain`: `provision` installs a mere binary that a prior
+  workflow step downloaded and checksum-verified
+  (`@svendowideit/github-release-install`), re-verifies its SHA-256 and
+  `--version`, and initialises an isolated root (store, config, public key)
+  under `.swamp/mere/<name>/`. `status` re-verifies the digest. The version is
+  pinned exactly; `latest` is rejected. Provisioning avoids `runModel`, so it
+  also works on remote workers.
+
+Not implemented: recipe parsing/editing/building, upstream version discovery,
+workflows, reports, signing-key handling, bindings, serve deployment, and
+registry publication. This package is not ready for use.
 
 ## Validation
 
@@ -30,13 +38,17 @@ Run with Deno 2:
 ```sh
 deno fmt --check mere
 deno lint mere/models
-deno test --allow-read --allow-write --allow-run mere/models
+deno test --allow-read --allow-write --allow-run --allow-env mere/models
+# real engine, in throwaway swamp repos (needs `swamp` on PATH):
+deno test --allow-read --allow-write --allow-run --allow-env mere/integration
+# add the network test (downloads mere 0.23.0, provisions it):
+MERE_INTEGRATION_NET=1 deno test --allow-read --allow-write --allow-run --allow-env --allow-net mere/integration
 ```
 
 Tests cover digest correctness, saved bytes, partial-download cleanup, URL
 policy, bounded simultaneous subprocess output, literal argv, and cancellation.
-Swamp extension loading and full workflow validation require authenticated CLI
-access and have not been performed.
+The integration suite loads the extension on the real engine and runs methods
+through the swamp CLI. Workflow validation is not yet covered.
 
 ## Design details to resolve before workflow implementation
 
