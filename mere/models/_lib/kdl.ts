@@ -28,11 +28,48 @@ export interface ParsedRecipe {
   phases: string[];
   sha256OfFile: string;
   normalized: boolean;
+  /**
+   * The recipe's scripts spell out its current version (or its major.minor
+   * series) instead of using ${recipe.version}: a sign the recipe needs
+   * improving before the version can change safely.
+   */
+  hardcodedVersion: { exact: boolean; series: boolean };
 }
 
 type Node = ReturnType<typeof parse>["nodes"][number];
 
 const PHASES = ["prepare", "build", "install", "check"];
+
+function collectStrings(node: Node, out: string[]) {
+  for (const value of node.getArguments()) {
+    if (typeof value === "string") out.push(value);
+  }
+  for (const [, value] of node.getProperties()) {
+    if (typeof value === "string") out.push(value);
+  }
+  for (const child of node.children?.nodes ?? []) collectStrings(child, out);
+}
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Does `text` contain `needle` as a whole version, not part of a longer number? */
+function mentionsVersion(text: string, needle: string): boolean {
+  return new RegExp(`(?<![\\d.])${escape(needle)}(?![\\d])`).test(text);
+}
+
+export function findHardcodedVersion(
+  scripts: string[],
+  version: string,
+): { exact: boolean; series: boolean } {
+  const text = scripts.join("\n");
+  const parts = version.match(/\d+/g) ?? [];
+  const series = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : "";
+  return {
+    exact: version.includes(".") && mentionsVersion(text, version),
+    series: series !== "" && series !== version &&
+      mentionsVersion(text, series),
+  };
+}
 
 /**
  * Some recipes end a continued list with a backslash before the closing brace,
@@ -251,6 +288,10 @@ export function parseRecipe(text: string, relPath: string): ParsedRecipe {
   if (packages.length === 0) {
     throw new Error(`${relPath}: recipe defines no package`);
   }
+  const scripts: string[] = [];
+  for (const node of doc.nodes) {
+    if (PHASES.includes(node.getName())) collectStrings(node, scripts);
+  }
   return {
     path: relPath,
     category,
@@ -269,5 +310,6 @@ export function parseRecipe(text: string, relPath: string): ParsedRecipe {
     phases: PHASES.filter((p) => doc.nodes.some((n) => n.getName() === p)),
     sha256OfFile: createHash("sha256").update(text).digest("hex"),
     normalized,
+    hardcodedVersion: findHardcodedVersion(scripts, version),
   };
 }

@@ -4,6 +4,7 @@ import {
   githubRepo,
   isNewer,
   lookupLatest,
+  pickLatest,
   RateLimited,
 } from "./upstream.ts";
 
@@ -54,7 +55,11 @@ Deno.test("github: newest stable tag, prefix inferred, prereleases skipped", asy
     ],
   });
   const result = await lookupLatest(ZLIB, providers(fetcher));
-  assertEquals(result, { provider: "github", latestVersion: "2.3.4" });
+  assertEquals(result, {
+    provider: "github",
+    latestVersion: "2.3.4",
+    latestInSeries: "2.3.4",
+  });
 });
 
 Deno.test("github: v-prefixed tags when the URL names the prefix", async () => {
@@ -146,6 +151,7 @@ Deno.test("anitya: by project id uses stable versions", async () => {
     provider: "anitya",
     projectId: 7,
     latestVersion: "2.1",
+    latestInSeries: "2.0",
   });
 });
 
@@ -235,4 +241,17 @@ Deno.test("isNewer and candidateUrl", () => {
     "https://x/1.2.tgz",
   );
   assertEquals(candidateUrl("https://x/fixed.tgz", "1.2"), undefined);
+});
+
+Deno.test("pickLatest reports the newest overall and the newest in the current series", () => {
+  assertEquals(
+    pickLatest(["5.4.7", "5.4.8", "5.5.1", "5.5.0-rc1"], "5.4.7"),
+    { latestVersion: "5.5.1", latestInSeries: "5.4.8" },
+  );
+  assertEquals(
+    pickLatest(["6.18.42", "6.18.43", "7.3"], "6.18.42"),
+    { latestVersion: "7.3", latestInSeries: "6.18.43" },
+  );
+  assertEquals(pickLatest(["3.0"], "2.1"), { latestVersion: "3.0" });
+  assertEquals(pickLatest([], "1.0"), {});
 });

@@ -49,6 +49,7 @@ const RecipeSchema = z.object({
   phases: z.array(z.string()),
   sha256OfFile: z.string(),
   normalized: z.boolean(),
+  hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
   commit: z.string(),
   schemaVersion: z.literal(1),
 });
@@ -59,6 +60,7 @@ const ScanSchema = z.object({
   total: z.number().int().nonnegative(),
   parsed: z.number().int().nonnegative(),
   normalized: z.array(z.string()),
+  hardcodedVersion: z.array(z.string()),
   failures: z.array(z.object({ path: z.string(), error: z.string() })),
   durationMs: z.number().nonnegative(),
   schemaVersion: z.literal(1),
@@ -206,6 +208,7 @@ export const behavior = {
         const handles: { name: string }[] = [];
         const failures: { path: string; error: string }[] = [];
         const normalized: string[] = [];
+        const hardcoded: string[] = [];
         let total = 0;
         for (const rel of await listRecipes(root)) {
           context.signal.throwIfAborted();
@@ -216,6 +219,11 @@ export const behavior = {
               rel,
             );
             if (parsed.normalized) normalized.push(rel);
+            if (
+              parsed.hardcodedVersion.exact || parsed.hardcodedVersion.series
+            ) {
+              hardcoded.push(parsed.name);
+            }
             handles.push(
               await context.writeResource(
                 "recipe",
@@ -238,6 +246,7 @@ export const behavior = {
             total,
             parsed: handles.length,
             normalized,
+            hardcodedVersion: hardcoded,
             failures,
             durationMs: performance.now() - started,
             schemaVersion: 1,

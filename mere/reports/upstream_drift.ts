@@ -71,6 +71,8 @@ export const report = {
           name: r.name,
           current: r.currentVersion,
           latest: r.latestVersion,
+          latestInSeries: r.latestInSeries,
+          kind: r.bumpKind,
           provider: r.provider,
           candidateUrl: r.candidateUrl,
         })),

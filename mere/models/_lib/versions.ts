@@ -79,3 +79,24 @@ export function inferTagPrefix(sourceUrl: string): string | undefined {
   }
   return undefined;
 }
+
+function numericParts(version: string): number[] {
+  return segments(version).filter((s) => s.numeric).map((s) => Number(s.value));
+}
+
+/** The first two numeric segments, e.g. "6.18" for 6.18.42; the whole version if shorter. */
+export function seriesOf(version: string): string {
+  return numericParts(version).slice(0, 2).join(".");
+}
+
+export type BumpKind = "none" | "patch" | "minor" | "major";
+
+/** How far `latest` is from `current`, by leading numeric segments. */
+export function bumpKind(current: string, latest: string): BumpKind {
+  if (compareVersions(latest, current) <= 0) return "none";
+  const a = numericParts(current);
+  const b = numericParts(latest);
+  if ((a[0] ?? 0) !== (b[0] ?? 0)) return "major";
+  if ((a[1] ?? 0) !== (b[1] ?? 0)) return "minor";
+  return "patch";
+}

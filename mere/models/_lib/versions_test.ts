@@ -1,9 +1,11 @@
 import { assertEquals } from "./assert_test.ts";
 import {
+  bumpKind,
   compareVersions,
   inferTagPrefix,
   isPrerelease,
   newestStable,
+  seriesOf,
   versionFromTag,
 } from "./versions.ts";
 
@@ -71,4 +73,16 @@ Deno.test("inferTagPrefix reads the tag shape from the source URL", () => {
     "release-",
   );
   assertEquals(inferTagPrefix("https://example.org/fixed.tar.gz"), undefined);
+});
+
+Deno.test("seriesOf and bumpKind classify how far a version moved", () => {
+  assertEquals(seriesOf("6.18.42"), "6.18");
+  assertEquals(seriesOf("62"), "62");
+  assertEquals(seriesOf("1.9.17p2"), "1.9");
+  assertEquals(bumpKind("5.4.7", "5.5.1"), "minor");
+  assertEquals(bumpKind("6.18.42", "7.3"), "major");
+  assertEquals(bumpKind("2.3.3", "2.3.4"), "patch");
+  assertEquals(bumpKind("62", "63"), "major");
+  assertEquals(bumpKind("2.3.3", "2.3.3"), "none");
+  assertEquals(bumpKind("2.3.3", "2.3.2"), "none");
 });

@@ -9,6 +9,7 @@ import {
   RateLimited,
 } from "./_lib/upstream.ts";
 import { runCommand } from "./_lib/runner.ts";
+import { bumpKind } from "./_lib/versions.ts";
 
 const GlobalArgs = z.object({
   githubToken: z.string().default("").meta({ sensitive: true }).describe(
@@ -22,6 +23,8 @@ const UpstreamSchema = z.object({
   name: z.string(),
   currentVersion: z.string(),
   latestVersion: z.string().optional(),
+  latestInSeries: z.string().optional(),
+  bumpKind: z.enum(["none", "patch", "minor", "major"]).optional(),
   isNewer: z.boolean(),
   provider: z.enum(["github", "anitya", "none"]),
   projectId: z.number().int().optional(),
@@ -324,6 +327,10 @@ async function lookupOne(
     name: input.name,
     currentVersion: input.currentVersion,
     ...(result.latestVersion ? { latestVersion: result.latestVersion } : {}),
+    ...(result.latestInSeries ? { latestInSeries: result.latestInSeries } : {}),
+    ...(result.latestVersion
+      ? { bumpKind: bumpKind(input.currentVersion, result.latestVersion) }
+      : {}),
     isNewer: isNewer(input.currentVersion, result.latestVersion),
     provider: result.provider,
     ...(result.projectId !== undefined ? { projectId: result.projectId } : {}),

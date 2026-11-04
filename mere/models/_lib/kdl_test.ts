@@ -1,5 +1,9 @@
 import { assertEquals, assertRejects } from "./assert_test.ts";
-import { normalizeContinuations, parseRecipe } from "./kdl.ts";
+import {
+  findHardcodedVersion,
+  normalizeContinuations,
+  parseRecipe,
+} from "./kdl.ts";
 
 const FIXTURES = new URL("../../testdata/merelinux/recipes/", import.meta.url)
   .pathname;
@@ -107,4 +111,27 @@ Deno.test({
     }
     assertEquals(count > 100, true);
   },
+});
+
+Deno.test("findHardcodedVersion flags spelled-out versions, not interpolation or longer numbers", () => {
+  assertEquals(
+    findHardcodedVersion(["ln -s liblua.so.5.4 x", "Version: 5.4.7"], "5.4.7"),
+    { exact: true, series: true },
+  );
+  assertEquals(
+    findHardcodedVersion(["make VERSION=${recipe.version}"], "5.4.7"),
+    { exact: false, series: false },
+  );
+  assertEquals(
+    findHardcodedVersion(["see 15.4.70 and 5.4.77"], "5.4.7"),
+    { exact: false, series: true },
+  );
+  assertEquals(
+    findHardcodedVersion(["python3.14"], "3.14.3"),
+    { exact: false, series: true },
+  );
+  assertEquals(findHardcodedVersion(["62"], "62"), {
+    exact: false,
+    series: false,
+  });
 });

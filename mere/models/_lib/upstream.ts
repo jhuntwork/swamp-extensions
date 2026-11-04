@@ -3,6 +3,7 @@ import {
   inferTagPrefix,
   isPrerelease,
   newestStable,
+  seriesOf,
   versionFromTag,
 } from "./versions.ts";
 
@@ -19,8 +20,26 @@ export interface LookupInput {
 export interface Lookup {
   provider: "github" | "anitya" | "none";
   latestVersion?: string;
+  /** Newest stable version in the current version's series (first two segments). */
+  latestInSeries?: string;
   projectId?: number;
   note?: string;
+}
+
+/** Newest overall and newest within the current series, from all stable versions. */
+export function pickLatest(
+  versions: string[],
+  currentVersion: string,
+): { latestVersion?: string; latestInSeries?: string } {
+  const latestVersion = newestStable(versions);
+  const series = seriesOf(currentVersion);
+  const latestInSeries = newestStable(
+    versions.filter((v) => seriesOf(v) === series),
+  );
+  return {
+    ...(latestVersion ? { latestVersion } : {}),
+    ...(latestInSeries ? { latestInSeries } : {}),
+  };
 }
 
 export interface Providers {
@@ -116,8 +135,8 @@ async function githubLatest(
       const v = versionFromTag(tag, prefix, input.currentVersion);
       return v === undefined ? [] : [v];
     });
-    const newest = newestStable(versions);
-    if (newest) return { provider: "github", latestVersion: newest };
+    const picked = pickLatest(versions, input.currentVersion);
+    if (picked.latestVersion) return { provider: "github", ...picked };
   }
   const releases = ((await getJson(
     `${base}/releases?per_page=30`,
@@ -130,8 +149,8 @@ async function githubLatest(
       const v = versionFromTag(r.tag_name, prefix, input.currentVersion);
       return v === undefined ? [] : [v];
     });
-    const newest = newestStable(versions);
-    if (newest) return { provider: "github", latestVersion: newest };
+    const picked = pickLatest(versions, input.currentVersion);
+    if (picked.latestVersion) return { provider: "github", ...picked };
   }
   return {
     provider: "github",
@@ -188,9 +207,9 @@ async function anityaLatest(
     project = matches[0];
   }
   const candidates = project.stable_versions ?? project.versions ?? [];
-  const newest = newestStable(candidates);
-  return newest
-    ? { provider: "anitya", projectId: project.id, latestVersion: newest }
+  const picked = pickLatest(candidates, input.currentVersion);
+  return picked.latestVersion
+    ? { provider: "anitya", projectId: project.id, ...picked }
     : {
       provider: "anitya",
       projectId: project.id,
