@@ -21,7 +21,7 @@ const GlobalArgsSchema = z.object({
     "Dedicated root path for the mere tree. Empty = auto ($SWAMP_REPO_DIR/.swamp/mere-shell/root).",
   ),
   useHostStore: z.boolean().default(false).describe(
-    "If true, symlinks host /mere/store into the dedicated root for cache hits.",
+    "Deprecated and rejected. Mere 0.23 namespaces cannot safely expose host /mere/store; use the isolated store instead.",
   ),
 });
 
@@ -45,7 +45,23 @@ export async function runCommand(
   options: Deno.CommandOptions,
   signal?: AbortSignal,
 ): Promise<Deno.CommandOutput> {
-  return await new Deno.Command(command, { ...options, signal }).output();
+  const child = new Deno.Command(command, options).spawn();
+  if (!signal) return await child.output();
+
+  const terminate = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // The child may have exited between the abort and kill calls.
+    }
+  };
+  signal.addEventListener("abort", terminate, { once: true });
+  try {
+    if (signal.aborted) terminate();
+    return await child.output();
+  } finally {
+    signal.removeEventListener("abort", terminate);
+  }
 }
 
 /** Parse the SHA-256 for one release binary from a SHA256SUMS manifest. */
@@ -154,7 +170,17 @@ async function ensureBinary(
   return binaryPath;
 }
 
-async function ensureRoot(
+/** Reject the legacy host-store mode before it can affect a Mere root. */
+export function validateStoreMode(useHostStore: boolean): void {
+  if (useHostStore) {
+    throw new Error(
+      "useHostStore=true is unsupported: Mere 0.23 does not expose host /mere/store inside its shell namespace; use useHostStore=false for an isolated store",
+    );
+  }
+}
+
+/** Ensure the root has a real store directory visible as /mere/store. */
+export async function ensureRoot(
   mereRoot: string,
   mereBinary: string,
   signal?: AbortSignal,
@@ -165,11 +191,23 @@ async function ensureRoot(
   const keysDir = `${mereDir}/keys`;
   const keyPath = `${keysDir}/mere.pub`;
 
+  let initializeStore = false;
   try {
-    const stat = await Deno.stat(storeDir);
-    if (!stat.isDirectory) throw new Error(`${storeDir} is not a directory`);
+    const stat = await Deno.lstat(storeDir);
+    if (stat.isSymlink) {
+      // Older versions of this extension linked the host store here. Remove
+      // only the managed link so a later isolated invocation gets a real store.
+      await Deno.remove(storeDir);
+      initializeStore = true;
+    } else if (!stat.isDirectory) {
+      throw new Error(`${storeDir} is not a directory`);
+    }
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
+    initializeStore = true;
+  }
+
+  if (initializeStore) {
     const output = await runCommand(mereBinary, {
       args: ["--root", mereRoot, "store", "init"],
       stdout: "piped",
@@ -179,6 +217,10 @@ async function ensureRoot(
       throw new Error(
         `mere store init failed: ${new TextDecoder().decode(output.stderr)}`,
       );
+    }
+    const stat = await Deno.lstat(storeDir);
+    if (!stat.isDirectory || stat.isSymlink) {
+      throw new Error(`${storeDir} was not initialized as a real directory`);
     }
   }
 
@@ -201,25 +243,6 @@ async function ensureRoot(
     }
     await Deno.writeFile(keyPath, new Uint8Array(await res.arrayBuffer()));
   }
-}
-
-async function linkHostStore(mereRoot: string): Promise<void> {
-  const hostStore = "/mere/store";
-  const localStore = `${mereRoot}/mere/store`;
-  try {
-    const stat = await Deno.stat(hostStore);
-    if (!stat.isDirectory) return;
-  } catch {
-    return;
-  }
-  try {
-    const stat = await Deno.lstat(localStore);
-    if (stat.isSymlink) return;
-    await Deno.remove(localStore, { recursive: true });
-  } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
-  }
-  await Deno.symlink(hostStore, localStore);
 }
 
 async function writeProfileKdl(
@@ -250,7 +273,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.08.19.1",
+  version: "2026.11.04.1",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -268,6 +291,13 @@ export const model = {
     toVersion: "2026.08.19.1",
     description:
       "Fix download URL from Codeberg to GitHub where Mere releases are published.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.04.1",
+    description:
+      "Reject unsafe host-store symlinks and repair legacy roots with an isolated namespace-visible store.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -313,6 +343,7 @@ export const model = {
         const mereRoot = globalArgs.mereRoot ||
           `${repoDir}/.swamp/mere-shell/root`;
         try {
+          validateStoreMode(globalArgs.useHostStore);
           const version = await resolveVersion(
             globalArgs.mereVersion,
             context.signal,
@@ -324,7 +355,6 @@ export const model = {
             context.signal,
           );
           await ensureRoot(mereRoot, mereBinary, context.signal);
-          if (globalArgs.useHostStore) await linkHostStore(mereRoot);
           const profilePath = await writeProfileKdl(
             `${repoDir}/.swamp/mere-shell/profiles`,
             packages,

@@ -79,7 +79,14 @@ The `result` resource contains:
 | `mereVersion` | `"latest"` | Mere version to use (`latest` or a pin such as `0.18.2`) |
 | `mereSHA256` | `""` | Optional 64-character SHA-256 pin for the selected architecture binary; otherwise release `SHA256SUMS` is used. |
 | `mereRoot` | `""` | Dedicated root path (empty = auto: `$SWAMP_REPO_DIR/.swamp/mere-shell/root`) |
-| `useHostStore` | `false` | If true, symlinks host `/mere/store` into the dedicated root for cache hits |
+| `useHostStore` | `false` | Deprecated and rejected. Mere 0.23 cannot safely expose host `/mere/store` inside its namespace; use the isolated store. |
+
+`useHostStore=true` is rejected. The Mere 0.23 shell creates a mount namespace where
+host `/mere/store` is not guaranteed to exist. A symlink from the dedicated root
+would therefore either self-resolve at `/mere/store` or expose an unavailable
+path. The supported mode uses a real `${mereRoot}/mere/store` initialized by
+`mere store init`, which Mere exposes inside the namespace as `/mere/store`.
+Legacy roots containing the old host-store symlink are repaired on the next run.
 
 ## Use in workflows
 

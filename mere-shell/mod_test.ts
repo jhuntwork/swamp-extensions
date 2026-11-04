@@ -1,6 +1,50 @@
-import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { parseSHA256SUMS, runCommand, sha256Hex, truncate } from "./mod.ts";
+import { assertEquals, assertFalse, assertThrows } from "jsr:@std/assert@1";
+import {
+  ensureRoot,
+  parseSHA256SUMS,
+  runCommand,
+  sha256Hex,
+  truncate,
+  validateStoreMode,
+} from "./mod.ts";
 
+Deno.test("validateStoreMode supports only the isolated store", () => {
+  validateStoreMode(false);
+  assertThrows(
+    () => validateStoreMode(true),
+    Error,
+    "useHostStore=true is unsupported",
+  );
+});
+
+Deno.test({
+  name: "ensureRoot repairs a legacy host-store symlink",
+  permissions: { read: true, write: true, run: true },
+  async fn() {
+    const root = await Deno.makeTempDir({ prefix: "mere-shell-test-" });
+    try {
+      await Deno.mkdir(`${root}/mere/keys`, { recursive: true });
+      await Deno.writeTextFile(`${root}/mere/config.kdl`, "config {}\n");
+      await Deno.writeTextFile(`${root}/mere/keys/mere.pub`, "test-key\n");
+      await Deno.symlink("/mere/store", `${root}/mere/store`);
+
+      const fakeMere = `${root}/fake-mere.sh`;
+      await Deno.writeTextFile(
+        fakeMere,
+        '#!/bin/sh\nmkdir -p "$2/mere/store"\n',
+      );
+      await Deno.chmod(fakeMere, 0o755);
+
+      await ensureRoot(root, fakeMere);
+
+      const store = await Deno.lstat(`${root}/mere/store`);
+      assertFalse(store.isSymlink);
+      assertEquals(store.isDirectory, true);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+});
 Deno.test("parseSHA256SUMS finds an architecture-specific digest", () => {
   const sums = `${"a".repeat(64)}  mere-0.18.2-linux-x86_64\n${
     "b".repeat(64)
