@@ -79,14 +79,16 @@ The `result` resource contains:
 | `mereVersion` | `"latest"` | Mere version to use (`latest` or a pin such as `0.18.2`) |
 | `mereSHA256` | `""` | Optional 64-character SHA-256 pin for the selected architecture binary; otherwise release `SHA256SUMS` is used. |
 | `mereRoot` | `""` | Dedicated root path (empty = auto: `$SWAMP_REPO_DIR/.swamp/mere-shell/root`) |
-| `useHostStore` | `false` | Deprecated and rejected. Mere 0.23 cannot safely expose host `/mere/store` inside its namespace; use the isolated store. |
+| `useHostStore` | `false` | Use the host Mere root (`/`) and share its `/mere/store`; `mereRoot` must be empty or `/`. |
 
-`useHostStore=true` is rejected. The Mere 0.23 shell creates a mount namespace where
-host `/mere/store` is not guaranteed to exist. A symlink from the dedicated root
-would therefore either self-resolve at `/mere/store` or expose an unavailable
-path. The supported mode uses a real `${mereRoot}/mere/store` initialized by
-`mere store init`, which Mere exposes inside the namespace as `/mere/store`.
-Legacy roots containing the old host-store symlink are repaired on the next run.
+`useHostStore=true` selects `mereRoot=/` and does not create a symlink. Mere 0.23 defines
+`--root PATH` as the physical location of `PATH/mere`, then bind-mounts that directory
+as `/mere` inside `mere shell`. Therefore `--root /` exposes the existing host
+`/mere/store` directly at `/mere/store`. The host root must already be initialized
+and accessible to the invoking user. Do not combine `useHostStore=true` with a
+separate `mereRoot` path. The default (`useHostStore=false`) keeps a real,
+repo-local `${mereRoot}/mere/store`; legacy roots containing the old self-referential
+store symlink are repaired on the next run.
 
 ## Use in workflows
 
