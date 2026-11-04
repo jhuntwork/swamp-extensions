@@ -41,6 +41,19 @@ Not implemented: recipe editing (`setVersion`), validation, building, upstream
 version discovery, workflows, reports, signing-key handling, bindings, serve
 deployment, and registry publication. This package is not ready for use.
 
+## Parser conformance
+
+Our recipe parser is separate from mere's, so `integration/conformance_test.ts`
+pins it to mere: every recipe in a real merelinux tree, and ~40 mutations of a
+valid recipe (missing or repeated fields, unknown nodes, bad values, v2 syntax),
+must be accepted or rejected by our parser exactly as `mere dev validate` does.
+It already found six differences (optional `url`, required package, repeated
+singleton fields, unknown nodes, and so on), now fixed. Run it with `MERE_BIN`
+and `MERE_RECIPES_DIR`, or with `MERE_INTEGRATION_NET=1` to download a
+checksum-verified mere and clone merelinux itself. It checks accept/reject only;
+mere has no structured output for field values yet. Intentional differences go
+in `KNOWN_DIVERGENCES`, with a reason.
+
 ## Validation
 
 Run with Deno 2:
