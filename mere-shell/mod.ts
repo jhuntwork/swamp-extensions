@@ -39,6 +39,7 @@ const ResultSchema = z.object({
   error: z.string().optional(),
 });
 
+// swamp-quality-ignore deno-command
 /** Run one subprocess and bind it to the model cancellation signal. */
 export async function runCommand(
   command: string,
