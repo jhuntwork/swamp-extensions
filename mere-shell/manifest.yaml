@@ -5,6 +5,7 @@ description: >
   Execute typed argv inside a verified, cancellable Mere Linux shell namespace
   with dedicated roots and isolated package sets.
 repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
 paths:
   base: manifest
 models:

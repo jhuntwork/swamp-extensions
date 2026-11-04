@@ -45,6 +45,7 @@ export async function runCommand(
   options: Deno.CommandOptions,
   signal?: AbortSignal,
 ): Promise<Deno.CommandOutput> {
+  // swamp-quality-ignore deno-command
   const child = new Deno.Command(command, options).spawn();
   if (!signal) return await child.output();
 
