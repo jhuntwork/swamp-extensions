@@ -37,6 +37,19 @@ Implemented:
   `@swamp/git` with `runModel`; set it false on workers and run an
   `ensure_checkout` step first. Nothing is edited yet.
 
+- `@jeremy/mere/recipe-scan` (workflow) and `@jeremy/mere/upstream-drift`
+  (report): the workflow parses the tree, then looks up every recipe's latest
+  upstream version (inputs `recipeBinding`, default `merelinux`, and
+  `sourceBinding`, default `merelinux-upstream`). The report lists recipes
+  behind upstream, those that could not be checked and why, parse failures, and
+  recipes that needed normalisation. Read-only and token-free; the schedule
+  belongs in the ops repo's `serve.yaml`, since a bundled workflow cannot be
+  edited. Read it with
+  `swamp report get @jeremy/mere/upstream-drift --workflow recipe-scan --markdown`.
+
+- `source.latest` and `source.scanLatest`: newest stable upstream version from
+  GitHub tags and releases, else Anitya (matched on the recipe homepage).
+
 Not implemented: recipe editing (`setVersion`), validation, building, upstream
 version discovery, workflows, reports, signing-key handling, bindings, serve
 deployment, and registry publication. This package is not ready for use.

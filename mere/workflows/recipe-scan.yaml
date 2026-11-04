@@ -1,0 +1,53 @@
+id: 47f78aa9-727f-4d8d-ada1-32688f61d7e2
+name: recipe-scan
+description: >-
+  Parse every merelinux recipe, then look up each one's latest upstream
+  version. Read-only and token-free; run on a schedule, then read the
+  upstream-drift report.
+tags: {}
+reports:
+  require:
+    - "@jeremy/mere/upstream-drift"
+inputs:
+  properties:
+    recipeBinding:
+      type: string
+      default: merelinux
+      description: "@jeremy/mere/recipe behavior to scan"
+    sourceBinding:
+      type: string
+      default: merelinux-upstream
+      description: "@jeremy/mere/source behavior that looks up upstream versions"
+    concurrency:
+      type: integer
+      default: 4
+jobs:
+  - name: scan
+    steps:
+      - name: parse
+        description: Parse the recipe tree (one resource per recipe)
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: scan
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: latest
+        description: Look up the latest upstream version of every recipe
+        task:
+          type: behavior
+          behavior: ${{ inputs.sourceBinding }}
+          methodName: scanLatest
+          inputs:
+            recipeBinding: ${{ inputs.recipeBinding }}
+            concurrency: ${{ inputs.concurrency }}
+        dependsOn:
+          - step: parse
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

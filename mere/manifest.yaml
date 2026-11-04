@@ -9,6 +9,10 @@ behaviors:
   - models/source.ts
   - models/toolchain.ts
   - models/recipe.ts
+reports:
+  - reports/upstream_drift.ts
+workflows:
+  - workflows/recipe-scan.yaml
 dependencies:
   - "@swamp/git"
 additionalFiles:

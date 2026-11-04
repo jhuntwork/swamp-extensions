@@ -111,3 +111,59 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name:
+    "the bundled recipe-scan workflow runs and its drift report renders (network)",
+  ignore: !NETWORK,
+  fn: async () => {
+    const repo = await createRepo();
+    const tree = await fixtureTree();
+    try {
+      for (
+        const [type, name, args] of [
+          ["recipe", "merelinux", [
+            "--global-arg",
+            `checkoutPath=${tree}`,
+            "--global-arg",
+            "ensureCheckout=false",
+          ]],
+          ["source", "merelinux-upstream", []],
+        ] as [string, string, string[]][]
+      ) {
+        const created = await repo.swamp([
+          "behavior",
+          "create",
+          `@jeremy/mere/${type}`,
+          name,
+          ...args,
+          "--json",
+        ]);
+        assertEquals(created.code, 0, created.stderr);
+      }
+      const validated = await repo.json([
+        "workflow",
+        "validate",
+        "recipe-scan",
+      ]);
+      assertEquals(validated.passed, true);
+      const run = await repo.json(["workflow", "run", "recipe-scan"]);
+      assertEquals(run.status, "succeeded");
+      const report = await repo.swamp([
+        "report",
+        "get",
+        "@jeremy/mere/upstream-drift",
+        "--workflow",
+        "recipe-scan",
+        "--markdown",
+      ]);
+      assertEquals(report.code, 0, report.stderr);
+      assertEquals(report.stdout.includes("4 recipes checked"), true);
+      assertEquals(report.stdout.includes("| mimalloc |"), true);
+      assertEquals(report.stdout.includes("bzip2/recipe.kdl"), true);
+    } finally {
+      await repo.cleanup();
+      await Deno.remove(tree, { recursive: true });
+    }
+  },
+});
