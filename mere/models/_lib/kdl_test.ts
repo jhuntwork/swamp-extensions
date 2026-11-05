@@ -3,6 +3,7 @@ import {
   findHardcodedVersion,
   normalizeContinuations,
   parseRecipe,
+  parseUpstreamOverride,
 } from "./kdl.ts";
 
 const FIXTURES = new URL("../../testdata/merelinux/recipes/", import.meta.url)
@@ -134,4 +135,66 @@ Deno.test("findHardcodedVersion flags spelled-out versions, not interpolation or
     exact: false,
     series: false,
   });
+});
+
+Deno.test("parseUpstreamOverride reads corrections and rejects anything else", () => {
+  const ok = parseUpstreamOverride(
+    `upstream {\n  github "jqlang/jq"\n  tag-prefix "jq-"\n  exclude "^2000"\n  exclude "rc"\n  patch-suffix "p"\n}`,
+    "recipes/core/jq/upstream.kdl",
+  );
+  assertEquals(ok, {
+    github: "jqlang/jq",
+    tagPrefix: "jq-",
+    patchSuffix: "p",
+    exclude: ["^2000", "rc"],
+  });
+  assertEquals(
+    parseUpstreamOverride(`upstream {\n  anitya-project-id 13252\n}`, "x"),
+    { anityaProjectId: 13252 },
+  );
+  const bad = [
+    `upstream {\n  pin true\n}`,
+    `upstream {\n  series "5.4"\n}`,
+    `upstream {\n  github "a/b"\n  anitya-project-id 1\n}`,
+    `upstream {\n  github "nope"\n}`,
+    `upstream {\n  anitya-project-id 0\n}`,
+    `upstream {\n  anitya-project-id 1\n  anitya-project-id 2\n}`,
+    `upstream {\n  exclude "("\n}`,
+    `upstream {\n  patch-suffix "p2"\n}`,
+    `other {\n}`,
+    ``,
+  ];
+  for (const text of bad) {
+    let threw = false;
+    try {
+      parseUpstreamOverride(text, "x");
+    } catch {
+      threw = true;
+    }
+    assertEquals(threw, true, text);
+  }
+});
+
+Deno.test("a source built from ${recipe.url} is remote, not local", () => {
+  const r = parseRecipe(
+    `recipe {
+    name "jq"
+    version "1.8.1"
+    release 1
+    url "https://github.com/jqlang/jq"
+}
+source "\${recipe.url}/releases/download/jq-\${recipe.version}/jq.tar.gz" {
+    blake3 "00"
+}
+package "jq" {
+    files "usr/bin/jq"
+}
+`,
+    "recipes/extra/jq/recipe.kdl",
+  );
+  assertEquals(r.sources[0].isLocal, false);
+  assertEquals(
+    r.sources[0].resolvedUrl,
+    "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq.tar.gz",
+  );
 });

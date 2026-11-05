@@ -259,7 +259,7 @@ export function parseRecipe(text: string, relPath: string): ParsedRecipe {
       return {
         url: raw,
         resolvedUrl: interpolate(raw, values),
-        isLocal: !/^[a-z][a-z0-9+.-]*:\/\//i.test(raw),
+        isLocal: !/^[a-z][a-z0-9+.-]*:\/\//i.test(interpolate(raw, values)),
         interpolatesVersion: raw.includes("${recipe.version}"),
         ...(blake3 ? { blake3 } : {}),
         ...(saveAs ? { saveAs } : {}),
@@ -312,4 +312,92 @@ export function parseRecipe(text: string, relPath: string): ParsedRecipe {
     normalized,
     hardcodedVersion: findHardcodedVersion(scripts, version),
   };
+}
+
+export interface UpstreamOverride {
+  anityaProjectId?: number;
+  github?: string;
+  tagPrefix?: string;
+  exclude?: string[];
+  patchSuffix?: string;
+}
+
+const OVERRIDE_FIELDS = new Set([
+  "anitya-project-id",
+  "github",
+  "tag-prefix",
+  "exclude",
+  "patch-suffix",
+]);
+const OVERRIDE_SINGLE = new Set([
+  "anitya-project-id",
+  "github",
+  "tag-prefix",
+  "patch-suffix",
+]);
+
+/**
+ * Parse a recipe's optional upstream.kdl. Overrides only correct a wrong
+ * lookup (which project, which tags, what counts as a version); nothing here
+ * can hide a newer version.
+ */
+export function parseUpstreamOverride(
+  text: string,
+  relPath: string,
+): UpstreamOverride {
+  const doc = parse(text);
+  const nodes = doc.nodes.filter((n) => n.getName() === "upstream");
+  if (nodes.length !== 1 || doc.nodes.length !== 1) {
+    throw new Error(`${relPath}: expected exactly one upstream node`);
+  }
+  const fields = nodes[0].children?.nodes ?? [];
+  checkStructure("upstream", fields, OVERRIDE_FIELDS, OVERRIDE_SINGLE, relPath);
+  const arg = (name: string) =>
+    fields.find((n) => n.getName() === name)?.getArguments()[0];
+  const out: UpstreamOverride = {};
+  const project = arg("anitya-project-id");
+  if (project !== undefined) {
+    if (
+      typeof project !== "number" || !Number.isInteger(project) || project < 1
+    ) {
+      throw new Error(
+        `${relPath}: anitya-project-id must be a positive integer`,
+      );
+    }
+    out.anityaProjectId = project;
+  }
+  const github = arg("github");
+  if (github !== undefined) {
+    if (typeof github !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(github)) {
+      throw new Error(`${relPath}: github must be "owner/repo"`);
+    }
+    out.github = github;
+  }
+  if (out.github && out.anityaProjectId !== undefined) {
+    throw new Error(`${relPath}: set github or anitya-project-id, not both`);
+  }
+  const prefix = arg("tag-prefix");
+  if (prefix !== undefined) {
+    if (typeof prefix !== "string") {
+      throw new Error(`${relPath}: tag-prefix must be a string`);
+    }
+    out.tagPrefix = prefix;
+  }
+  const suffix = arg("patch-suffix");
+  if (suffix !== undefined) {
+    if (typeof suffix !== "string" || !/^[A-Za-z]{1,4}$/.test(suffix)) {
+      throw new Error(`${relPath}: patch-suffix must be 1-4 letters`);
+    }
+    out.patchSuffix = suffix;
+  }
+  const exclude = strings(fields.filter((n) => n.getName() === "exclude"));
+  for (const pattern of exclude) {
+    try {
+      new RegExp(pattern);
+    } catch {
+      throw new Error(`${relPath}: exclude "${pattern}" is not a valid regex`);
+    }
+  }
+  if (exclude.length > 0) out.exclude = exclude;
+  return out;
 }

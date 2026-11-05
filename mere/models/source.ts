@@ -295,7 +295,14 @@ export function recipeToInput(a: Record<string, unknown>): LookupInput {
     name: String(a.name),
     currentVersion: String(a.version),
     url: String(a.url ?? ""),
-    sourceUrl: source?.url ?? "",
+    // Resolve the variables that do not change between versions, so tag
+    // prefixes can be read off the URL (${recipe.version} stays in place).
+    sourceUrl: (source?.url ?? "")
+      .replaceAll("${recipe.url}", String(a.url ?? "").replace(/\/+$/, ""))
+      .replaceAll("${recipe.name}", String(a.name)),
+    ...(a.upstreamOverride
+      ? { override: a.upstreamOverride as LookupInput["override"] }
+      : {}),
   };
 }
 
@@ -329,9 +336,19 @@ async function lookupOne(
     ...(result.latestVersion ? { latestVersion: result.latestVersion } : {}),
     ...(result.latestInSeries ? { latestInSeries: result.latestInSeries } : {}),
     ...(result.latestVersion
-      ? { bumpKind: bumpKind(input.currentVersion, result.latestVersion) }
+      ? {
+        bumpKind: bumpKind(
+          input.currentVersion,
+          result.latestVersion,
+          input.override?.patchSuffix,
+        ),
+      }
       : {}),
-    isNewer: isNewer(input.currentVersion, result.latestVersion),
+    isNewer: isNewer(
+      input.currentVersion,
+      result.latestVersion,
+      input.override?.patchSuffix,
+    ),
     provider: result.provider,
     ...(result.projectId !== undefined ? { projectId: result.projectId } : {}),
     ...(candidateUrl(input.sourceUrl, result.latestVersion)

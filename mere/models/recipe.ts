@@ -1,6 +1,6 @@
 import { z } from "npm:zod@4.1.12";
 import { join } from "node:path";
-import { parseRecipe } from "./_lib/kdl.ts";
+import { parseRecipe, parseUpstreamOverride } from "./_lib/kdl.ts";
 import { runChecked } from "./_lib/runner.ts";
 
 const GlobalArgs = z.object({
@@ -50,6 +50,13 @@ const RecipeSchema = z.object({
   sha256OfFile: z.string(),
   normalized: z.boolean(),
   hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
+  upstreamOverride: z.object({
+    anityaProjectId: z.number().int().optional(),
+    github: z.string().optional(),
+    tagPrefix: z.string().optional(),
+    exclude: z.array(z.string()).optional(),
+    patchSuffix: z.string().optional(),
+  }).optional(),
   commit: z.string(),
   schemaVersion: z.literal(1),
 });
@@ -61,6 +68,7 @@ const ScanSchema = z.object({
   parsed: z.number().int().nonnegative(),
   normalized: z.array(z.string()),
   hardcodedVersion: z.array(z.string()),
+  upstreamOverrides: z.array(z.string()),
   failures: z.array(z.object({ path: z.string(), error: z.string() })),
   durationMs: z.number().nonnegative(),
   schemaVersion: z.literal(1),
@@ -119,6 +127,19 @@ async function headCommit(path: string, signal: AbortSignal): Promise<string> {
     timeoutMs: 30_000,
   });
   return result.stdout.trim();
+}
+
+/** upstream.kdl beside a recipe, if any. An unreadable one throws. */
+async function readOverride(root: string, rel: string) {
+  const overridePath = rel.replace(/recipe\.kdl$/, "upstream.kdl");
+  let text: string;
+  try {
+    text = await Deno.readTextFile(join(root, overridePath));
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return undefined;
+    throw error;
+  }
+  return parseUpstreamOverride(text, overridePath);
 }
 
 const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
@@ -186,10 +207,16 @@ export const behavior = {
         const text = await Deno.readTextFile(join(root, rel));
         const parsed = parseRecipe(text, rel);
         const commit = await headCommit(root, context.signal);
+        const upstreamOverride = await readOverride(root, rel);
         const handle = await context.writeResource(
           "recipe",
           recipeInstanceName(parsed.category, parsed.name),
-          { ...parsed, commit, schemaVersion: 1 },
+          {
+            ...parsed,
+            ...(upstreamOverride ? { upstreamOverride } : {}),
+            commit,
+            schemaVersion: 1,
+          },
         );
         return { dataHandles: [handle] };
       },
@@ -209,6 +236,7 @@ export const behavior = {
         const failures: { path: string; error: string }[] = [];
         const normalized: string[] = [];
         const hardcoded: string[] = [];
+        const overrides: string[] = [];
         let total = 0;
         for (const rel of await listRecipes(root)) {
           context.signal.throwIfAborted();
@@ -224,11 +252,28 @@ export const behavior = {
             ) {
               hardcoded.push(parsed.name);
             }
+            let upstreamOverride;
+            try {
+              upstreamOverride = await readOverride(root, rel);
+            } catch (error) {
+              // A bad override must not hide the recipe; report it.
+              failures.push({
+                path: rel.replace(/recipe\.kdl$/, "upstream.kdl"),
+                error: (error instanceof Error ? error.message : String(error))
+                  .slice(0, 300),
+              });
+            }
+            if (upstreamOverride) overrides.push(parsed.name);
             handles.push(
               await context.writeResource(
                 "recipe",
                 recipeInstanceName(parsed.category, parsed.name),
-                { ...parsed, commit, schemaVersion: 1 },
+                {
+                  ...parsed,
+                  ...(upstreamOverride ? { upstreamOverride } : {}),
+                  commit,
+                  schemaVersion: 1,
+                },
               ),
             );
           } catch (error) {
@@ -247,6 +292,7 @@ export const behavior = {
             parsed: handles.length,
             normalized,
             hardcodedVersion: hardcoded,
+            upstreamOverrides: overrides,
             failures,
             durationMs: performance.now() - started,
             schemaVersion: 1,

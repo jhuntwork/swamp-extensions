@@ -5,6 +5,7 @@ import {
   inferTagPrefix,
   isPrerelease,
   newestStable,
+  normalizePatchSuffix,
   seriesOf,
   versionFromTag,
 } from "./versions.ts";
@@ -85,4 +86,17 @@ Deno.test("seriesOf and bumpKind classify how far a version moved", () => {
   assertEquals(bumpKind("62", "63"), "major");
   assertEquals(bumpKind("2.3.3", "2.3.3"), "none");
   assertEquals(bumpKind("2.3.3", "2.3.2"), "none");
+});
+
+Deno.test("patch suffix makes 1.9.17p2 newer than 1.9.17", () => {
+  assertEquals(normalizePatchSuffix("1.9.17p2", "p"), "1.9.17.2");
+  assertEquals(normalizePatchSuffix("1.9.17", "p"), "1.9.17");
+  assertEquals(normalizePatchSuffix("1.9.17p2"), "1.9.17p2");
+  assertEquals(
+    newestStable(["1.9.17", "1.9.17p2", "1.9.16p1"], "p"),
+    "1.9.17p2",
+  );
+  assertEquals(newestStable(["1.9.17", "1.9.17p2"]), "1.9.17");
+  assertEquals(bumpKind("1.9.17p2", "1.9.17", "p"), "none");
+  assertEquals(bumpKind("1.9.17", "1.9.17p2", "p"), "patch");
 });

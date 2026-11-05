@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "./assert_test.ts";
 import {
   candidateUrl,
+  chooseProject,
   githubRepo,
   isNewer,
   lookupLatest,
@@ -132,10 +133,7 @@ Deno.test("a stalled request fails that lookup after the per-request timeout", a
 
 Deno.test("anitya: by project id uses stable versions", async () => {
   const fetcher = fake({
-    "https://anitya.test/api/v2/projects/7/": {
-      id: 7,
-      name: "x",
-      homepage: "https://x.org",
+    "https://anitya.test/api/v2/versions/?project_id=7": {
       versions: ["3.0", "2.0"],
       stable_versions: ["2.1", "2.0"],
     },
@@ -254,4 +252,106 @@ Deno.test("pickLatest reports the newest overall and the newest in the current s
   );
   assertEquals(pickLatest(["3.0"], "2.1"), { latestVersion: "3.0" });
   assertEquals(pickLatest([], "1.0"), {});
+});
+
+Deno.test("chooseProject prefers the project that already lists the recipe's version", () => {
+  const input = {
+    name: "openssl",
+    currentVersion: "3.6.1",
+    url: "https://www.openssl.org",
+    sourceUrl: "",
+  };
+  const items = [
+    {
+      id: 1,
+      name: "openssl",
+      homepage: "https://crates.io/crates/openssl",
+      versions: ["0.10.1"],
+    },
+    {
+      id: 2,
+      name: "openssl",
+      homepage: "https://openssl-library.org",
+      versions: ["3.6.1", "3.5.0"],
+    },
+  ];
+  assertEquals(chooseProject(items, input), { project: items[1] });
+  // Two projects list the version: the homepage breaks the tie, else ask.
+  const both = [
+    { ...items[0], versions: ["3.6.1"] },
+    { ...items[1], homepage: "https://www.openssl.org/" },
+  ];
+  assertEquals(chooseProject(both, input), { project: both[1] });
+  const tied = [items[1], { ...items[1], id: 3 }];
+  assertEquals("note" in chooseProject(tied, input), true);
+  // Nothing lists it and no homepage matches: say what was tried.
+  const none = chooseProject([items[0]], input);
+  assertEquals("note" in none && none.note.includes("candidates: 1"), true);
+  assertEquals("note" in chooseProject([], input), true);
+});
+
+Deno.test("overrides: forced repo and tag prefix, exclusions, forced Anitya project", async () => {
+  const gh = fake({
+    "https://api.github.com/repos/jqlang/jq/tags?per_page=100": [
+      { name: "jq-1.8.1" },
+      { name: "jq-1.7.1" },
+      { name: "jq-1.9.0-rc1" },
+      { name: "20001016" },
+    ],
+  });
+  const jq = await lookupLatest({
+    name: "jq",
+    currentVersion: "1.8.1",
+    url: "https://jqlang.github.io/jq/",
+    sourceUrl: "https://example.org/x-${recipe.version}.tar.gz",
+    override: { github: "jqlang/jq", tagPrefix: "jq-" },
+  }, providers(gh));
+  assertEquals(jq.latestVersion, "1.8.1");
+
+  const shadow = fake({
+    "https://api.github.com/repos/shadow-maint/shadow/tags?per_page=100": [
+      { name: "4.19.4" },
+      { name: "20001016" },
+    ],
+  });
+  const input = {
+    name: "shadow",
+    currentVersion: "4.19.4",
+    url: "https://github.com/shadow-maint/shadow",
+    sourceUrl:
+      "https://github.com/shadow-maint/shadow/releases/download/${recipe.version}/x.tar.xz",
+  };
+  assertEquals(
+    (await lookupLatest(input, providers(shadow))).latestVersion,
+    "20001016",
+  );
+  assertEquals(
+    (await lookupLatest(
+      { ...input, override: { exclude: ["^2000"] } },
+      providers(shadow),
+    )).latestVersion,
+    "4.19.4",
+  );
+
+  const anitya = fake({
+    "https://anitya.test/api/v2/versions/?project_id=99": {
+      versions: ["2.0"],
+      stable_versions: ["2.0"],
+    },
+  });
+  const forced = await lookupLatest({
+    name: "x",
+    currentVersion: "1.0",
+    url: "https://github.com/o/x",
+    sourceUrl: "https://github.com/o/x/archive/${recipe.version}.tar.gz",
+    override: { anityaProjectId: 99 },
+  }, providers(anitya));
+  assertEquals(forced.provider, "anitya");
+  assertEquals(forced.latestVersion, "2.0");
+});
+
+Deno.test("overrides: patch suffix keeps sudo's p2 as current, not older", () => {
+  assertEquals(isNewer("1.9.17p2", "1.9.17"), true);
+  assertEquals(isNewer("1.9.17p2", "1.9.17", "p"), false);
+  assertEquals(isNewer("1.9.17p2", "1.9.17p3", "p"), true);
 });

@@ -3,6 +3,7 @@ import {
   inferTagPrefix,
   isPrerelease,
   newestStable,
+  normalizePatchSuffix,
   seriesOf,
   versionFromTag,
 } from "./versions.ts";
@@ -15,6 +16,13 @@ export interface LookupInput {
   /** The first remote source URL, still containing ${recipe.version}. */
   sourceUrl: string;
   anityaProjectId?: number;
+  override?: {
+    anityaProjectId?: number;
+    github?: string;
+    tagPrefix?: string;
+    exclude?: string[];
+    patchSuffix?: string;
+  };
 }
 
 export interface Lookup {
@@ -30,11 +38,16 @@ export interface Lookup {
 export function pickLatest(
   versions: string[],
   currentVersion: string,
+  override: LookupInput["override"] = {},
 ): { latestVersion?: string; latestInSeries?: string } {
-  const latestVersion = newestStable(versions);
-  const series = seriesOf(currentVersion);
+  const excluded = (override.exclude ?? []).map((p) => new RegExp(p));
+  const kept = versions.filter((v) => !excluded.some((re) => re.test(v)));
+  const suffix = override.patchSuffix;
+  const latestVersion = newestStable(kept, suffix);
+  const series = seriesOf(normalizePatchSuffix(currentVersion, suffix));
   const latestInSeries = newestStable(
-    versions.filter((v) => seriesOf(v) === series),
+    kept.filter((v) => seriesOf(normalizePatchSuffix(v, suffix)) === series),
+    suffix,
   );
   return {
     ...(latestVersion ? { latestVersion } : {}),
@@ -124,8 +137,10 @@ async function githubLatest(
 ): Promise<Lookup> {
   const base = `https://api.github.com/repos/${repo.owner}/${repo.repo}`;
   const headers = githubHeaders(providers);
-  const prefixes = [...new Set([inferTagPrefix(input.sourceUrl), "v", ""])]
-    .filter((p): p is string => p !== undefined);
+  const prefixes = input.override?.tagPrefix !== undefined
+    ? [input.override.tagPrefix]
+    : [...new Set([inferTagPrefix(input.sourceUrl), "v", ""])]
+      .filter((p): p is string => p !== undefined);
   const tagNames =
     ((await getJson(`${base}/tags?per_page=100`, providers, headers)) as {
       name: string;
@@ -135,7 +150,7 @@ async function githubLatest(
       const v = versionFromTag(tag, prefix, input.currentVersion);
       return v === undefined ? [] : [v];
     });
-    const picked = pickLatest(versions, input.currentVersion);
+    const picked = pickLatest(versions, input.currentVersion, input.override);
     if (picked.latestVersion) return { provider: "github", ...picked };
   }
   const releases = ((await getJson(
@@ -149,7 +164,7 @@ async function githubLatest(
       const v = versionFromTag(r.tag_name, prefix, input.currentVersion);
       return v === undefined ? [] : [v];
     });
-    const picked = pickLatest(versions, input.currentVersion);
+    const picked = pickLatest(versions, input.currentVersion, input.override);
     if (picked.latestVersion) return { provider: "github", ...picked };
   }
   return {
@@ -176,6 +191,50 @@ function normalizeUrl(url: string): string {
     .toLowerCase();
 }
 
+const hasVersion = (project: AnityaProject, current: string) =>
+  [...(project.versions ?? []), ...(project.stable_versions ?? [])].some((v) =>
+    v === current || v.replace(/^v/i, "") === current
+  );
+
+/**
+ * Pick the Anitya project for a recipe. The homepage often differs from the
+ * recipe's `url` (openssl: openssl-library.org vs www.openssl.org), and the
+ * name is shared with crates.io, PyPI and other registries. The strongest
+ * evidence is that the project already lists the version the recipe has.
+ */
+export function chooseProject(
+  items: AnityaProject[],
+  input: LookupInput,
+): { project: AnityaProject } | { note: string } {
+  const sameHomepage = (p: AnityaProject) =>
+    normalizeUrl(p.homepage) === normalizeUrl(input.url);
+  const confirmed = items.filter((p) => hasVersion(p, input.currentVersion));
+  if (confirmed.length === 1) return { project: confirmed[0] };
+  if (confirmed.length > 1) {
+    const byHomepage = confirmed.filter(sameHomepage);
+    if (byHomepage.length === 1) return { project: byHomepage[0] };
+    return {
+      note:
+        `${confirmed.length} Anitya projects named ${input.name} list ${input.currentVersion} ` +
+        `(ids ${confirmed.map((p) => p.id).join(", ")}); set anityaProjectId`,
+    };
+  }
+  const byHomepage = items.filter(sameHomepage);
+  if (byHomepage.length === 1) return { project: byHomepage[0] };
+  if (byHomepage.length > 1) {
+    return {
+      note:
+        `${byHomepage.length} Anitya projects match ${input.name} by homepage; set anityaProjectId`,
+    };
+  }
+  return {
+    note: items.length === 0
+      ? `no Anitya project named ${input.name}`
+      : `no Anitya project named ${input.name} lists ${input.currentVersion} or has homepage ${input.url} ` +
+        `(candidates: ${items.map((p) => `${p.id} ${p.homepage}`).join("; ")})`,
+  };
+}
+
 async function anityaLatest(
   input: LookupInput,
   providers: Providers,
@@ -183,31 +242,29 @@ async function anityaLatest(
   const base = providers.anityaBaseUrl.replace(/\/+$/, "");
   let project: AnityaProject | undefined;
   if (input.anityaProjectId !== undefined) {
-    project = (await getJson(
-      `${base}/api/v2/projects/${input.anityaProjectId}/`,
+    // There is no single-project endpoint; the versions endpoint is keyed by id.
+    const versions = (await getJson(
+      `${base}/api/v2/versions/?project_id=${input.anityaProjectId}`,
       providers,
-    )) as AnityaProject;
+    )) as { versions?: string[]; stable_versions?: string[] };
+    project = {
+      id: input.anityaProjectId,
+      name: input.name,
+      homepage: input.url,
+      versions: versions.versions,
+      stable_versions: versions.stable_versions,
+    };
   } else {
     const search = (await getJson(
       `${base}/api/v2/projects/?name=${encodeURIComponent(input.name)}`,
       providers,
     )) as { items: AnityaProject[] };
-    // Matching on homepage prevents name collisions (glib vs crates.io).
-    const matches = search.items.filter((p) =>
-      normalizeUrl(p.homepage) === normalizeUrl(input.url)
-    );
-    if (matches.length !== 1) {
-      return {
-        provider: "anitya",
-        note: matches.length === 0
-          ? `no Anitya project named ${input.name} has homepage ${input.url}`
-          : `${matches.length} Anitya projects match ${input.name}; set anityaProjectId`,
-      };
-    }
-    project = matches[0];
+    const chosen = chooseProject(search.items, input);
+    if ("note" in chosen) return { provider: "anitya", note: chosen.note };
+    project = chosen.project;
   }
   const candidates = project.stable_versions ?? project.versions ?? [];
-  const picked = pickLatest(candidates, input.currentVersion);
+  const picked = pickLatest(candidates, input.currentVersion, input.override);
   return picked.latestVersion
     ? { provider: "anitya", projectId: project.id, ...picked }
     : {
@@ -221,16 +278,32 @@ export async function lookupLatest(
   input: LookupInput,
   providers: Providers,
 ): Promise<Lookup> {
-  const repo = input.anityaProjectId === undefined
-    ? githubRepo(input.sourceUrl, input.url)
-    : undefined;
+  const override = input.override ?? {};
+  const projectId = override.anityaProjectId ?? input.anityaProjectId;
+  if (override.github) {
+    const [owner, repo] = override.github.split("/");
+    return await githubLatest(input, { owner, repo }, providers);
+  }
+  if (projectId !== undefined) {
+    return await anityaLatest(
+      { ...input, anityaProjectId: projectId },
+      providers,
+    );
+  }
+  const repo = githubRepo(input.sourceUrl, input.url);
   if (repo) return await githubLatest(input, repo, providers);
   return await anityaLatest(input, providers);
 }
 
-export function isNewer(current: string, latest: string | undefined): boolean {
-  return latest !== undefined && !isPrerelease(latest) &&
-    compareVersions(latest, current) > 0;
+export function isNewer(
+  current: string,
+  latest: string | undefined,
+  patchSuffix?: string,
+): boolean {
+  if (latest === undefined) return false;
+  const lat = normalizePatchSuffix(latest, patchSuffix);
+  return !isPrerelease(lat) &&
+    compareVersions(lat, normalizePatchSuffix(current, patchSuffix)) > 0;
 }
 
 /** Replace ${recipe.version} so the candidate download URL can be fetched. */

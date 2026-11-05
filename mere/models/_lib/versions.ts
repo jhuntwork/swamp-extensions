@@ -41,10 +41,29 @@ export function isPrerelease(version: string): boolean {
   return PRERELEASE.test(version) || PYTHON_PRE.test(version);
 }
 
+/**
+ * Treat `<digit><suffix><digit>` as a patch level, e.g. sudo's 1.9.17p2, so it
+ * sorts after 1.9.17 instead of reading as a prerelease letter.
+ */
+export function normalizePatchSuffix(version: string, suffix?: string): string {
+  if (!suffix) return version;
+  return version.replace(new RegExp(`(\\d)${suffix}(\\d+)`, "g"), "$1.$2");
+}
+
 /** The candidates' newest stable version, or undefined. */
-export function newestStable(versions: string[]): string | undefined {
-  const stable = versions.filter((v) => !isPrerelease(v));
-  stable.sort(compareVersions);
+export function newestStable(
+  versions: string[],
+  patchSuffix?: string,
+): string | undefined {
+  const stable = versions.filter((v) =>
+    !isPrerelease(normalizePatchSuffix(v, patchSuffix))
+  );
+  stable.sort((a, b) =>
+    compareVersions(
+      normalizePatchSuffix(a, patchSuffix),
+      normalizePatchSuffix(b, patchSuffix),
+    )
+  );
   return stable.at(-1);
 }
 
@@ -92,10 +111,16 @@ export function seriesOf(version: string): string {
 export type BumpKind = "none" | "patch" | "minor" | "major";
 
 /** How far `latest` is from `current`, by leading numeric segments. */
-export function bumpKind(current: string, latest: string): BumpKind {
-  if (compareVersions(latest, current) <= 0) return "none";
-  const a = numericParts(current);
-  const b = numericParts(latest);
+export function bumpKind(
+  current: string,
+  latest: string,
+  patchSuffix?: string,
+): BumpKind {
+  const cur = normalizePatchSuffix(current, patchSuffix);
+  const lat = normalizePatchSuffix(latest, patchSuffix);
+  if (compareVersions(lat, cur) <= 0) return "none";
+  const a = numericParts(cur);
+  const b = numericParts(lat);
   if ((a[0] ?? 0) !== (b[0] ?? 0)) return "major";
   if ((a[1] ?? 0) !== (b[1] ?? 0)) return "minor";
   return "patch";

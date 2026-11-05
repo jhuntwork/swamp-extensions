@@ -112,3 +112,48 @@ Deno.test({
     }
   },
 });
+
+Deno.test("upstream.kdl overrides are read, and a bad one is reported without hiding the recipe", async () => {
+  const repo = await createRepo();
+  const tree = await fixtureCheckout();
+  try {
+    await Deno.writeTextFile(
+      join(tree, "recipes/core/zlib-ng/upstream.kdl"),
+      'upstream {\n    github "zlib-ng/zlib-ng"\n    exclude "rc"\n}\n',
+    );
+    await Deno.writeTextFile(
+      join(tree, "recipes/core/bzip2/upstream.kdl"),
+      "upstream {\n    pin true\n}\n",
+    );
+    await git(tree, "add", ".");
+    await git(tree, "commit", "-q", "-m", "overrides");
+    await createRecipe(repo, "merelinux", [
+      "--global-arg",
+      `checkoutPath=${tree}`,
+      "--global-arg",
+      "ensureCheckout=false",
+    ]);
+    const scan = await repo.json(["behavior", "run", "merelinux", "scan"]);
+    const artifacts = scan.dataArtifacts as {
+      name: string;
+      attributes: Record<string, unknown>;
+    }[];
+    const summary = artifacts.find((a) => a.name === "scan")!.attributes;
+    assertEquals(summary.upstreamOverrides, ["zlib-ng"]);
+    const failures = summary.failures as { path: string; error: string }[];
+    assertEquals(failures.length, 1);
+    assertEquals(failures[0].path, "recipes/core/bzip2/upstream.kdl");
+    assertEquals(failures[0].error.includes("pin"), true);
+    // The recipe with the bad override is still scanned.
+    assertEquals(artifacts.some((a) => a.name === "recipe-core-bzip2"), true);
+    const zlib = artifacts.find((a) => a.name === "recipe-core-zlib-ng")!
+      .attributes;
+    assertEquals(zlib.upstreamOverride, {
+      github: "zlib-ng/zlib-ng",
+      exclude: ["rc"],
+    });
+  } finally {
+    await repo.cleanup();
+    await Deno.remove(tree, { recursive: true });
+  }
+});
