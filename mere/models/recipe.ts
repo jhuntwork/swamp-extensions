@@ -2,7 +2,7 @@ import { z } from "npm:zod@4.1.12";
 import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./_lib/kdl.ts";
 import { setVersion } from "./_lib/edit.ts";
-import { runChecked } from "./_lib/runner.ts";
+import { runChecked, runCommand } from "./_lib/runner.ts";
 
 const GlobalArgs = z.object({
   repoUrl: z.string().url().default(
@@ -11,6 +11,10 @@ const GlobalArgs = z.object({
   ref: z.string().default("main"),
   checkoutPath: z.string().default("").describe(
     "Empty derives .swamp/mere/checkouts/merelinux under the repo.",
+  ),
+  toolchain: z.string().default("mere").describe(
+    "Name of the @jeremy/mere/toolchain behavior whose provisioned mere " +
+      "binary and isolated root validate and build use.",
   ),
   ensureCheckout: z.boolean().default(true).describe(
     "Clone or update the checkout through @swamp/git before reading. Set " +
@@ -94,6 +98,55 @@ const SetVersionArgs = z.object({
   allowHardcodedVersion: z.boolean().default(false),
 });
 
+const ValidationSchema = z.object({
+  recipe: z.string(),
+  path: z.string(),
+  ok: z.boolean(),
+  exitCode: z.number().int(),
+  output: z.string(),
+  mereVersion: z.string(),
+  durationMs: z.number().nonnegative(),
+  schemaVersion: z.literal(1),
+});
+
+const BuildSchema = z.object({
+  recipe: z.string(),
+  name: z.string(),
+  version: z.string(),
+  release: z.number().int(),
+  arch: z.string(),
+  ok: z.boolean(),
+  exitCode: z.number().int(),
+  noCache: z.boolean(),
+  durationMs: z.number().nonnegative(),
+  failingPhase: z.string().describe("Empty on success"),
+  errorLine: z.string().describe(
+    "mere's first error message, empty on success",
+  ),
+  outputs: z.array(z.object({
+    fileName: z.string(),
+    path: z.string(),
+    package: z.string(),
+    contentId: z.string().describe("The hash in mere's archive file name"),
+    sha256: z.string(),
+    bytes: z.number().int().nonnegative(),
+  })),
+  logTail: z.string(),
+  schemaVersion: z.literal(1),
+});
+
+const RecipeCheckoutArgs = z.object({
+  recipe: z.string().regex(/^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i),
+  checkoutPath: z.string().min(1).describe(
+    "The per-run worktree holding the recipe to check; absolute.",
+  ),
+});
+
+const BuildArgs = RecipeCheckoutArgs.extend({
+  noCache: z.boolean().default(true).describe("As CI does."),
+  timeoutMinutes: z.number().int().min(1).max(240).default(60),
+});
+
 const ScanSchema = z.object({
   commit: z.string(),
   ref: z.string(),
@@ -117,6 +170,14 @@ type Context = {
     name: string,
     data: Record<string, unknown>,
   ) => Promise<{ name: string }>;
+  createFileWriter: (
+    spec: string,
+    name: string,
+  ) => { writeText(text: string): Promise<{ name: string }> };
+  readModelData: (
+    name: string,
+    spec?: string,
+  ) => Promise<{ attributes: Record<string, unknown> }[]>;
   runModel?: (options: Record<string, unknown>) => Promise<
     { ok: true } | { ok: false; error: { message: string } }
   >;
@@ -175,6 +236,113 @@ async function readOverride(root: string, rel: string) {
   return parseUpstreamOverride(text, overridePath);
 }
 
+/** Pull the failing phase and mere's first error out of a build's output tail. */
+export function diagnose(
+  tail: string,
+): { failingPhase: string; errorLine: string } {
+  const lines = tail.split("\n");
+  let failingPhase = "";
+  for (const line of lines) {
+    const m = /^error (\S+) failed/.exec(line);
+    if (m) failingPhase = m[1];
+  }
+  const errorLine =
+    lines.map((l) => l.trim()).find((l) => l.startsWith("error:")) ??
+      lines.map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
+  return { failingPhase, errorLine: errorLine.slice(0, 400) };
+}
+
+function recipeFile(
+  args: { recipe: string; checkoutPath: string },
+): string {
+  if (!args.checkoutPath.startsWith("/")) {
+    throw new Error("checkoutPath must be an absolute path");
+  }
+  return join(args.checkoutPath, "recipes", args.recipe, "recipe.kdl");
+}
+
+/** The provisioned mere binary and root, from the toolchain behavior's data. */
+async function toolchainOf(
+  context: Context,
+): Promise<{ binary: string; root: string; version: string }> {
+  const name = GlobalArgs.parse(context.globalArgs).toolchain;
+  const records = await context.readModelData(name, "toolchain");
+  const data = records[0]?.attributes as
+    | { binaryPath?: string; root?: string; version?: string }
+    | undefined;
+  if (!data?.binaryPath || !data.root) {
+    throw new Error(
+      `toolchain "${name}" has no data; run its provision method first ` +
+        `(download mere with @svendowideit/github-release-install, then ` +
+        `provision with the archive path and sha256)`,
+    );
+  }
+  await Deno.stat(data.binaryPath);
+  return {
+    binary: data.binaryPath,
+    root: data.root,
+    version: data.version ?? "",
+  };
+}
+
+async function listOutputs(
+  dir: string,
+  version: string,
+  release: number,
+  arch: string,
+) {
+  const out = [];
+  const suffix = new RegExp(
+    `-${
+      version.replace(/[.+*?^$()|[\]\\]/g, "\\$&")
+    }-${release}-${arch}-([0-9a-f]{64})\\.pkg\\.tar\\.zst$`,
+  );
+  for await (const entry of Deno.readDir(dir)) {
+    if (!entry.isFile || !entry.name.endsWith(".pkg.tar.zst")) continue;
+    const match = suffix.exec(entry.name);
+    const path = join(dir, entry.name);
+    out.push({
+      fileName: entry.name,
+      path,
+      package: match ? entry.name.slice(0, match.index) : entry.name,
+      contentId: match?.[1] ?? "",
+      sha256: await sha256OfFile(path),
+      bytes: (await Deno.stat(path)).size,
+    });
+  }
+  return out.sort((a, b) => a.fileName.localeCompare(b.fileName));
+}
+
+async function sha256OfFile(path: string): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256");
+  const file = await Deno.open(path, { read: true });
+  for await (const chunk of file.readable) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+/** mere's workspace for the most recent build of this recipe tuple. */
+async function latestBuildLog(root: string, tuple: string, since: number) {
+  const base = join(root, "mere", "dev", "build");
+  let best: { path: string; mtime: number } | undefined;
+  try {
+    for await (const entry of Deno.readDir(base)) {
+      if (!entry.isDirectory || !entry.name.startsWith(`${tuple}-`)) continue;
+      const path = join(base, entry.name, "build.log");
+      try {
+        const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
+        // Only a log this build wrote: an older one would mislead.
+        if (mtime >= since - 1000 && (!best || mtime > best.mtime)) {
+          best = { path, mtime };
+        }
+      } catch { /* no log in this workspace */ }
+    }
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+  return best?.path;
+}
+
 const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
 
 export function recipeInstanceName(category: string, name: string): string {
@@ -225,6 +393,18 @@ export const behavior = {
       lifetime: "infinite",
       garbageCollection: 20,
     },
+    validation: {
+      description: "Result of `mere dev validate` on one recipe",
+      schema: ValidationSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    build: {
+      description: "Result of `mere dev build` on one recipe, with its outputs",
+      schema: BuildSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
     scan: {
       description:
         "Outcome of a tree scan, including recipes that failed to parse",
@@ -233,7 +413,155 @@ export const behavior = {
       garbageCollection: 20,
     },
   },
+  files: {
+    buildLog: {
+      description: "mere's build log for the latest build of a recipe",
+      contentType: "text/plain",
+      lifetime: "7d",
+      garbageCollection: 5,
+      streaming: false,
+    },
+  },
   methods: {
+    validate: {
+      description:
+        "Run `mere dev validate` on a recipe in a worktree: mere is the " +
+        "authority on whether a recipe is acceptable. Records the result, " +
+        "then throws if mere rejected it.",
+      kind: "action",
+      arguments: RecipeCheckoutArgs,
+      execute: async (
+        args: z.infer<typeof RecipeCheckoutArgs>,
+        context: Context,
+      ) => {
+        const tool = await toolchainOf(context);
+        const file = recipeFile(args);
+        const result = await runCommand(
+          tool.binary,
+          ["--root", tool.root, "dev", "validate", file],
+          {
+            signal: context.signal,
+            timeoutMs: 120_000,
+            maxOutputBytes: 16_384,
+          },
+        );
+        const output = (result.stderr || result.stdout).trim();
+        const handle = await context.writeResource(
+          "validation",
+          `validation-${args.recipe.split("/")[1]}`,
+          {
+            recipe: args.recipe,
+            path: `recipes/${args.recipe}/recipe.kdl`,
+            ok: result.exitCode === 0,
+            exitCode: result.exitCode,
+            output,
+            mereVersion: tool.version,
+            durationMs: result.durationMs,
+            schemaVersion: 1,
+          },
+        );
+        if (result.exitCode !== 0) {
+          throw new Error(
+            `mere rejected ${args.recipe}: ${output.split("\n")[0]}`,
+          );
+        }
+        return { dataHandles: [handle] };
+      },
+    },
+    build: {
+      description:
+        "Run `mere dev build` on a recipe in a worktree, in the isolated " +
+        "root. Records the outputs (each package archive, its sha256 and " +
+        "size) read from mere's outputs directory, and the build log, then " +
+        "throws if the build failed.",
+      kind: "action",
+      arguments: BuildArgs,
+      execute: async (args: z.infer<typeof BuildArgs>, context: Context) => {
+        const tool = await toolchainOf(context);
+        const file = recipeFile(args);
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const parsed = parseRecipe(await Deno.readTextFile(file), rel);
+        const arch = Deno.build.arch;
+        const tuple = `${parsed.name}-${parsed.version}-${parsed.release}`;
+        const outputDir = join(
+          tool.root,
+          "mere",
+          "dev",
+          "outputs",
+          `${tuple}-${arch}`,
+        );
+        // A stale output from an earlier build must not pass for this one.
+        await Deno.remove(outputDir, { recursive: true }).catch((error) => {
+          if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+        const startedAt = Date.now();
+        const result = await runCommand(
+          tool.binary,
+          [
+            "--root",
+            tool.root,
+            "dev",
+            "build",
+            ...(args.noCache ? ["--no-cache"] : []),
+            file,
+          ],
+          {
+            signal: context.signal,
+            timeoutMs: args.timeoutMinutes * 60_000,
+            maxOutputBytes: 65_536,
+          },
+        );
+        const tail =
+          (result.stdout + (result.stderr ? "\n" + result.stderr : "")).trim();
+        const outputs = result.exitCode === 0
+          ? await listOutputs(outputDir, parsed.version, parsed.release, arch)
+          : [];
+        const { failingPhase, errorLine } = result.exitCode === 0
+          ? { failingPhase: "", errorLine: "" }
+          : diagnose(tail);
+        const handles = [];
+        const logPath = await latestBuildLog(tool.root, tuple, startedAt);
+        if (logPath) {
+          const log = await Deno.readTextFile(logPath);
+          handles.push(
+            await context.createFileWriter("buildLog", parsed.name).writeText(
+              log.length > 2_000_000 ? log.slice(-2_000_000) : log,
+            ),
+          );
+        }
+        handles.push(
+          await context.writeResource("build", `build-${parsed.name}`, {
+            recipe: args.recipe,
+            name: parsed.name,
+            version: parsed.version,
+            release: parsed.release,
+            arch,
+            ok: result.exitCode === 0,
+            exitCode: result.exitCode,
+            noCache: args.noCache,
+            durationMs: result.durationMs,
+            failingPhase,
+            errorLine,
+            outputs,
+            logTail: tail.split("\n").slice(-60).join("\n"),
+            schemaVersion: 1,
+          }),
+        );
+        if (result.exitCode !== 0) {
+          throw new Error(
+            `mere dev build failed for ${args.recipe} (exit ${result.exitCode}) in ${
+              failingPhase || "an unknown phase"
+            }: ${errorLine}`,
+          );
+        }
+        if (outputs.length === 0) {
+          throw new Error(
+            `build of ${args.recipe} succeeded but produced no packages`,
+          );
+        }
+        return { dataHandles: handles };
+      },
+    },
     setVersion: {
       description:
         "Move a recipe to a new version in a worktree: edits only the version " +

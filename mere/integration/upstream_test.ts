@@ -90,7 +90,7 @@ Deno.test({
         name: string;
         attributes: Record<string, unknown>;
       }[];
-      assertEquals(records.length, 4);
+      assertEquals(records.length, 5);
       const zlib = records.find((r) => r.name === "upstream-zlib-ng")!
         .attributes;
       assertEquals(zlib.provider, "github");
@@ -158,7 +158,7 @@ Deno.test({
         "--markdown",
       ]);
       assertEquals(report.code, 0, report.stderr);
-      assertEquals(report.stdout.includes("4 recipes checked"), true);
+      assertEquals(report.stdout.includes("5 recipes checked"), true);
       assertEquals(report.stdout.includes("| mimalloc |"), true);
       assertEquals(report.stdout.includes("bzip2/recipe.kdl"), true);
     } finally {

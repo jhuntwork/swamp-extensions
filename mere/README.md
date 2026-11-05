@@ -50,9 +50,9 @@ Implemented:
 - `source.latest` and `source.scanLatest`: newest stable upstream version from
   GitHub tags and releases, else Anitya (matched on the recipe homepage).
 
-Not implemented: `validate`, `build`, per-recipe upstream overrides
-(`upstream.kdl`), the `recipe-bump` workflow, signing-key handling, serve
-deployment, and registry publication. This package is not ready for use.
+Not implemented: per-recipe upstream overrides (`upstream.kdl`), the
+`recipe-bump` workflow, signing-key handling, serve deployment, and registry
+publication. This package is not ready for use.
 
 ## Parser conformance
 
@@ -80,6 +80,9 @@ deno test --allow-read --allow-write --allow-run --allow-env mere/integration
 # add the network test (downloads mere 0.23.0, provisions it):
 MERE_INTEGRATION_NET=1 deno test --allow-read --allow-write --allow-run --allow-env --allow-net mere/integration
 ```
+
+mere's store entries are read-only by design, so removing a provisioned root
+needs `chmod -R u+rwX` first (the integration harness does this).
 
 Tests cover digest correctness, saved bytes, partial-download cleanup, URL
 policy, bounded simultaneous subprocess output, literal argv, and cancellation.

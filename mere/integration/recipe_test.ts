@@ -52,11 +52,11 @@ Deno.test("scan parses a tree and reads one recipe on the real engine", async ()
     }[];
     assertEquals(
       artifacts.filter((a) => a.name.startsWith("recipe-")).length,
-      4,
+      5,
     );
     const summary = artifacts.find((a) => a.name === "scan")!.attributes;
-    assertEquals(summary.total, 4);
-    assertEquals(summary.parsed, 4);
+    assertEquals(summary.total, 5);
+    assertEquals(summary.parsed, 5);
     assertEquals(summary.failures, []);
     assertEquals(summary.normalized, ["recipes/core/bzip2/recipe.kdl"]);
     const read = await repo.json([
@@ -221,4 +221,183 @@ Deno.test("setVersion edits a worktree recipe and records the change", async () 
     await repo.cleanup();
     await Deno.remove(tree, { recursive: true });
   }
+});
+
+Deno.test({
+  name:
+    "validate and build run mere on a worktree recipe, and failures keep their diagnostics (network)",
+  ignore: !NETWORK,
+  fn: async () => {
+    const repo = await createRepo();
+    const tree = await fixtureCheckout();
+    try {
+      assertEquals(
+        (await repo.swamp([
+          "extension",
+          "pull",
+          "@svendowideit/github-release-install",
+        ])).code,
+        0,
+      );
+      assertEquals(
+        (await repo.swamp([
+          "behavior",
+          "create",
+          "@svendowideit/github-release-install",
+          "mere-release",
+          "--global-arg",
+          "repo=jhuntwork/mere",
+          "--global-arg",
+          "format=raw",
+          "--global-arg",
+          "checksumsName=SHA256SUMS",
+          "--global-arg",
+          "assetPattern=^(?<stem>mere)-(?<version>[^-]+)-(?<os>linux)-(?<arch>[^.]+)$",
+          "--json",
+        ])).code,
+        0,
+      );
+      const archive = join(repo.dir, ".swamp", "mere", "download", "mere");
+      const download = await repo.json([
+        "behavior",
+        "run",
+        "mere-release",
+        "download",
+        "--input",
+        "version=0.23.0",
+        "--input",
+        `outputPath=${archive}`,
+      ]);
+      const sha =
+        (download.dataArtifacts as { attributes: { sha256: string } }[])[0]
+          .attributes.sha256;
+      assertEquals(
+        (await repo.swamp([
+          "behavior",
+          "create",
+          "@jeremy/mere/toolchain",
+          "mere",
+          "--global-arg",
+          "mereVersion=0.23.0",
+          "--json",
+        ])).code,
+        0,
+      );
+      assertEquals(
+        (await repo.json([
+          "behavior",
+          "run",
+          "mere",
+          "provision",
+          "--input",
+          `archivePath=${archive}`,
+          "--input",
+          `sha256=${sha}`,
+        ])).status,
+        "succeeded",
+      );
+      await createRecipe(repo, "rec", [
+        "--global-arg",
+        `checkoutPath=${tree}`,
+        "--global-arg",
+        "ensureCheckout=false",
+      ]);
+      const args = (recipe: string, path: string) => [
+        "--input",
+        `recipe=${recipe}`,
+        "--input",
+        `checkoutPath=${path}`,
+      ];
+
+      const valid = await repo.json([
+        "behavior",
+        "run",
+        "rec",
+        "validate",
+        ...args("core/inih", tree),
+      ]);
+      assertEquals(valid.status, "succeeded");
+
+      // A recipe mere rejects: validate throws but keeps its record.
+      const broken = await Deno.makeTempDir({ prefix: "mere-bad-" });
+      await new Deno.Command("cp", { args: ["-r", `${tree}/recipes`, broken] })
+        .output();
+      const brokenFile = join(broken, "recipes/core/inih/recipe.kdl");
+      await Deno.writeTextFile(
+        brokenFile,
+        (await Deno.readTextFile(brokenFile)).replace(/^\s*version .*$/m, ""),
+      );
+      const rejected = await repo.json([
+        "behavior",
+        "run",
+        "rec",
+        "validate",
+        ...args("core/inih", broken),
+      ]);
+      assertEquals(rejected.code, "method_execution_failed");
+      const kept = await repo.json([
+        "data",
+        "query",
+        'modelName == "rec" && name == "validation-inih" && isLatest',
+        "--select",
+        "attributes.ok",
+      ]);
+      assertEquals(kept.results, [false]);
+
+      // A real build produces a package archive.
+      const built = await repo.json([
+        "behavior",
+        "run",
+        "rec",
+        "build",
+        ...args("core/inih", tree),
+      ]);
+      assertEquals(built.status, "succeeded");
+      const build = (built.dataArtifacts as {
+        name: string;
+        attributes: Record<string, unknown>;
+      }[])
+        .find((a) => a.name === "build-inih")!.attributes;
+      assertEquals(build.ok, true);
+      const outputs = build.outputs as {
+        package: string;
+        sha256: string;
+        bytes: number;
+      }[];
+      assertEquals(outputs.length >= 1, true);
+      assertEquals(outputs[0].package.startsWith("inih"), true);
+      assertEquals(/^[0-9a-f]{64}$/.test(outputs[0].sha256), true);
+
+      // A build that fails (wrong hash) throws, and says why.
+      await Deno.writeTextFile(
+        join(broken, "recipes/core/inih/recipe.kdl"),
+        (await Deno.readTextFile(join(tree, "recipes/core/inih/recipe.kdl")))
+          .replace(/blake3 "[0-9a-f]{64}"/, `blake3 "${"0".repeat(64)}"`),
+      );
+      const failed = await repo.json([
+        "behavior",
+        "run",
+        "rec",
+        "build",
+        ...args("core/inih", broken),
+      ]);
+      assertEquals(failed.code, "method_execution_failed");
+      assertEquals(String(failed.error).includes("prepare"), true);
+      const record = await repo.json([
+        "data",
+        "query",
+        'modelName == "rec" && name == "build-inih" && isLatest',
+        "--select",
+        "[attributes.ok, attributes.failingPhase, attributes.errorLine]",
+      ]);
+      const [ok, phase, line] = (record.results as unknown[][])[0];
+      assertEquals(ok, false);
+      assertEquals(phase, "prepare");
+      assertEquals(String(line).includes("blake3 mismatch"), true);
+      await Deno.remove(broken, { recursive: true });
+    } finally {
+      await repo.cleanup();
+      await Deno.remove(tree, { recursive: true });
+    }
+  },
 });

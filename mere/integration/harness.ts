@@ -79,7 +79,11 @@ export async function createRepo(): Promise<Repo> {
         `not JSON (exit ${result.code}): ${result.stdout}${result.stderr}`,
       );
     },
-    cleanup: () => Deno.remove(dir, { recursive: true }),
+    cleanup: async () => {
+      // mere's store entries are read-only by design; unlock before removing.
+      await new Deno.Command("chmod", { args: ["-R", "u+rwX", dir] }).output();
+      await Deno.remove(dir, { recursive: true });
+    },
   };
 }
 
