@@ -41,3 +41,7 @@ schema of the CLI (commands, options, arguments) intended for agent
 consumption, run `swamp help [<command>...]` — e.g. `swamp help` returns
 the full tree, and `swamp help model method run` scopes to a subtree.
 <!-- END swamp managed section -->
+
+## PR description policy
+
+PR descriptions are reviewer-facing. State what changed, why it changed, and any relevant behavior, compatibility, migration, or risk notes. Keep the body concise. Do not put test transcripts, validation checklists, internal workflow or publication sequencing, approval instructions, agent notes, or process directives such as “merge this before publishing” in the description. Put test results in CI and internal process evidence in the run record or reviewer comments.
