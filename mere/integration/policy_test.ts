@@ -70,8 +70,7 @@ Deno.test("deliver-change refuses a commit that breaks the standards before it c
       assertEquals(run.status, "failed", message);
       const steps = (run.jobs as {
         steps: { name: string; status: string; error?: string }[];
-      }[])[0]
-        .steps;
+      }[]).flatMap((j) => j.steps);
       const status = (n: string) => steps.find((s) => s.name === n)?.status;
       assertEquals(status("check-message"), "failed", message);
       // Nothing after the check ran: no commit, no push.
