@@ -50,9 +50,9 @@ Implemented:
 - `source.latest` and `source.scanLatest`: newest stable upstream version from
   GitHub tags and releases, else Anitya (matched on the recipe homepage).
 
-Not implemented: `importOutputs`, `dependents`, the `recipe-bump` workflow,
-signing-key handling, serve deployment, and registry publication. This package
-is not ready for use.
+Not implemented: `importOutputs`, a real run of the GitHub steps, signing-key
+handling, serve deployment, and registry publication. This package is not ready
+for use.
 
 ## Parser conformance
 
