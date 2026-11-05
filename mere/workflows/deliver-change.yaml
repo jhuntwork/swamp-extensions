@@ -1,10 +1,11 @@
 id: dad80562-7653-498f-bedf-44b1d17c2602
 name: deliver-change
 description: >-
-  Commit a worktree's change, push its branch, check the pushed diff is only
-  what was expected, build and verify a change packet, plan the pull request,
-  wait for a person to approve it, then create it and read it back. Never
-  merges: the merge is manual.
+  Commit a worktree's change, check the commit against the commit standards,
+  push its branch, check the pushed diff is only what was expected, build and
+  verify a change packet, then plan, create and read back the pull request as
+  an ordinary PR. Optionally stops for a person's approval before anything is
+  pushed (requireApproval). Never merges: the merge is manual.
 tags: {}
 inputs:
   properties:
@@ -59,6 +60,13 @@ inputs:
       type: string
       default: ""
       description: When set, the commit's author must have this email
+    requireApproval:
+      type: boolean
+      default: false
+      description: >-
+        Stop for a person's approval before the branch is pushed and the PR
+        opened. Off by default: the PR is the review surface and the merge is
+        manual.
     checkName:
       type: string
       default: recipe-validation
@@ -74,7 +82,7 @@ inputs:
     - title
     - body
 jobs:
-  - name: deliver
+  - name: prepare
     steps:
       - name: check-message
         description: The commit message, PR title and branch meet the standards
@@ -157,6 +165,26 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
+    dependsOn: []
+    weight: 0
+  - name: gate
+    steps:
+      - name: approve-push
+        description: Optional gate before anything leaves this machine
+        guard: ${{ !inputs.requireApproval }}
+        task:
+          type: manual_approval
+          prompt: ${{ "Push " + inputs.branch + " to " + inputs.repository + " and open a pull request? " + inputs.title }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn:
+      - job: prepare
+        condition:
+          type: succeeded
+    weight: 0
+  - name: publish
+    steps:
       - name: push
         description: Push the branch; never forced
         task:
@@ -170,10 +198,7 @@ jobs:
             branch: ${{ inputs.branch }}
             setUpstream: true
             force: false
-        dependsOn:
-          - step: verify-commit
-            condition:
-              type: succeeded
+        dependsOn: []
         weight: 0
         allowFailure: false
       - name: diff
@@ -289,17 +314,6 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
-      - name: approve
-        description: A person decides whether this pull request is opened
-        task:
-          type: manual_approval
-          prompt: ${{ "Open a pull request for " + inputs.branch + " on " + inputs.repository + "? " + inputs.title }}
-        dependsOn:
-          - step: plan-pr
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
       - name: apply-pr
         task:
           type: behavior
@@ -311,7 +325,7 @@ jobs:
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:
-          - step: approve
+          - step: plan-pr
             condition:
               type: succeeded
         weight: 0
@@ -332,6 +346,9 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
-    dependsOn: []
+    dependsOn:
+      - job: gate
+        condition:
+          type: completed
     weight: 0
 version: 1

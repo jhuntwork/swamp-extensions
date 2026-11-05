@@ -35,6 +35,10 @@ inputs:
       type: string
       default: ""
       description: When set, the commit's author must have this email
+    requireApproval:
+      type: boolean
+      default: false
+      description: Stop for approval before the branch is pushed and the PR opened
     allowHardcodedVersion:
       type: boolean
       default: false
@@ -203,6 +207,7 @@ jobs:
             prBinding: ${{ inputs.prBinding }}
             packetBinding: ${{ inputs.packetBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            requireApproval: ${{ inputs.requireApproval }}
         dependsOn: []
         weight: 0
         allowFailure: false
