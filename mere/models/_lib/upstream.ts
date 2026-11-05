@@ -31,6 +31,10 @@ export interface Lookup {
   /** Newest stable version in the current version's series (first two segments). */
   latestInSeries?: string;
   projectId?: number;
+  /** Release page per version (GitHub), by the tag that produced it. */
+  releaseUrls?: Record<string, string>;
+  /** The project's page, when there is no per-version page (Anitya). */
+  projectUrl?: string;
   note?: string;
 }
 
@@ -145,13 +149,21 @@ async function githubLatest(
     ((await getJson(`${base}/tags?per_page=100`, providers, headers)) as {
       name: string;
     }[]).map((t) => t.name);
+  const urlFor = (tag: string) =>
+    `https://github.com/${repo.owner}/${repo.repo}/releases/tag/${
+      encodeURIComponent(tag)
+    }`;
   for (const prefix of prefixes) {
+    const urls: Record<string, string> = {};
     const versions = tagNames.flatMap((tag) => {
       const v = versionFromTag(tag, prefix, input.currentVersion);
+      if (v !== undefined) urls[v] = urlFor(tag);
       return v === undefined ? [] : [v];
     });
     const picked = pickLatest(versions, input.currentVersion, input.override);
-    if (picked.latestVersion) return { provider: "github", ...picked };
+    if (picked.latestVersion) {
+      return { provider: "github", ...picked, releaseUrls: urls };
+    }
   }
   const releases = ((await getJson(
     `${base}/releases?per_page=30`,
@@ -160,12 +172,16 @@ async function githubLatest(
   )) as { tag_name: string; prerelease: boolean; draft: boolean }[])
     .filter((r) => !r.prerelease && !r.draft);
   for (const prefix of prefixes) {
+    const urls: Record<string, string> = {};
     const versions = releases.flatMap((r) => {
       const v = versionFromTag(r.tag_name, prefix, input.currentVersion);
+      if (v !== undefined) urls[v] = urlFor(r.tag_name);
       return v === undefined ? [] : [v];
     });
     const picked = pickLatest(versions, input.currentVersion, input.override);
-    if (picked.latestVersion) return { provider: "github", ...picked };
+    if (picked.latestVersion) {
+      return { provider: "github", ...picked, releaseUrls: urls };
+    }
   }
   return {
     provider: "github",
@@ -266,7 +282,12 @@ async function anityaLatest(
   const candidates = project.stable_versions ?? project.versions ?? [];
   const picked = pickLatest(candidates, input.currentVersion, input.override);
   return picked.latestVersion
-    ? { provider: "anitya", projectId: project.id, ...picked }
+    ? {
+      provider: "anitya",
+      projectId: project.id,
+      ...picked,
+      projectUrl: `https://release-monitoring.org/project/${project.id}/`,
+    }
     : {
       provider: "anitya",
       projectId: project.id,

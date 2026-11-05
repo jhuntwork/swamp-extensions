@@ -42,39 +42,50 @@ const base: SummaryInput = {
   dependents: ["curl", "git"],
 };
 
-Deno.test("renderSummary for a plain patch bump", () => {
-  const s = renderSummary(base);
+Deno.test("a plain patch bump has release notes, evidence and dependents, nothing the diff shows", () => {
+  const s = renderSummary({
+    ...base,
+    bump: {
+      ...base.bump,
+      releaseNotesUrl: "https://github.com/o/r/releases/tag/2.3.4",
+    },
+  });
   assertEquals(s.title, "zlib-ng: upgrade to 2.3.4");
   assertEquals(s.commitMessage, s.title);
   assertEquals(s.labels, ["automated", "bump"]);
-  assertEquals(s.body.includes("needs migration"), false);
-  assertEquals(s.body.includes("2 recipes depend on it: `curl`, `git`"), true);
   assertEquals(
-    renderSummary({ ...base, dependents: ["curl"] }).body.includes(
-      "1 recipe depends on it",
-    ),
-    true,
+    s.body,
+    [
+      "Release notes: https://github.com/o/r/releases/tag/2.3.4",
+      "Built and validated locally on x86_64. Dependents: `curl`, `git`.",
+      "Opened by recipe-bump (run `run-1`).",
+    ].join("\n\n"),
   );
-  const same = renderSummary({
-    ...base,
-    change: { ...base.change, release: { before: 1, after: 1 } },
-    bump: { ...base.bump, latestInSeries: "2.3.3" },
-  });
-  assertEquals(same.body.includes("release 1)."), true);
-  assertEquals(same.body.includes("current series"), false);
-  assertEquals(s.body.includes("`zlib-ng` (1234 bytes"), true);
-  assertEquals(s.body.includes("run `run-1`"), true);
-  // Subject only: no body, no trailers, same text as the PR title.
-  assertEquals(s.commitMessage, "zlib-ng: upgrade to 2.3.4");
+  // None of the things the diff already shows.
+  for (const noise of ["blake3", "bytes", "sha256", "Source hashes", "## "]) {
+    assertEquals(s.body.includes(noise), false, noise);
+  }
 });
 
-Deno.test("renderSummary flags migration review and shows newer versions", () => {
+Deno.test("no dependents and no release link: only the evidence and the run", () => {
+  const s = renderSummary({ ...base, dependents: [] });
+  assertEquals(
+    s.body,
+    [
+      "Built and validated locally on x86_64.",
+      "Opened by recipe-bump (run `run-1`).",
+    ].join("\n\n"),
+  );
+});
+
+Deno.test("migration review says why and what newer versions exist", () => {
   const s = renderSummary({
     ...base,
     bump: {
       ...base.bump,
       bumpKind: "minor",
       latestVersion: "2.5.0",
+      latestInSeries: "2.3.9",
       targetSource: "explicit",
       needsMigration: true,
       hardcodedVersion: { exact: false, series: true },
@@ -82,10 +93,10 @@ Deno.test("renderSummary flags migration review and shows newer versions", () =>
     dependents: [],
   });
   assertEquals(s.labels, ["automated", "bump", "needs-migration"]);
-  assertEquals(s.body.includes("**Needs migration review:**"), true);
-  assertEquals(s.body.includes("this is a minor update"), true);
+  assertEquals(s.body.startsWith("**Needs migration review:**"), true);
+  assertEquals(s.body.includes("this is a minor update (2.3.3 → 2.3.4)"), true);
   assertEquals(s.body.includes("chosen explicitly"), true);
   assertEquals(s.body.includes("spell out its version or series"), true);
-  assertEquals(s.body.includes("Newest upstream: 2.5.0"), true);
-  assertEquals(s.body.includes("No other recipe depends on this one."), true);
+  assertEquals(s.body.includes("Newest upstream: 2.5.0."), true);
+  assertEquals(s.body.includes("Newest in the current series: 2.3.9."), true);
 });

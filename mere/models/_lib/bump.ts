@@ -31,6 +31,7 @@ export interface SummaryInput {
     targetSource: string;
     needsMigration: boolean;
     hardcodedVersion: { exact: boolean; series: boolean };
+    releaseNotesUrl?: string;
   };
   build: {
     arch: string;
@@ -48,29 +49,28 @@ export interface Summary {
   labels: string[];
 }
 
-const short = (hash: string) => hash.slice(0, 12);
-
-/** Title, commit message, body and labels for a bump PR, from data only. */
+/**
+ * Title, commit message, body and labels for a bump PR, from data only.
+ *
+ * The diff already shows the version, release and hash, so the body carries
+ * only what the diff cannot: where to read what changed upstream, whether the
+ * bump needs a closer look and why, who depends on the recipe, and the local
+ * evidence that it validated and built.
+ */
 export function renderSummary(input: SummaryInput): Summary {
   const { name, change, bump, build } = input;
   const from = change.version.before;
   const to = change.version.after;
   // The same subject for the commit and the PR title, in merelinux's
-  // `<name>: <verb phrase>` style; the detail lives in the PR body.
+  // `<name>: <verb phrase>` style.
   const title = `${name}: upgrade to ${to}`;
   const labels = ["automated", "bump"];
   if (bump.needsMigration) labels.push("needs-migration");
-  const lines: string[] = [
-    `Upgrade \`${name}\` from ${from} to ${to} (${bump.bumpKind} update` +
-    (change.release.before === change.release.after
-      ? `, release ${change.release.after}).`
-      : `, release ${change.release.before} → ${change.release.after}).`),
-    "",
-  ];
+  const blocks: string[] = [];
   if (bump.needsMigration) {
     const why = [
       bump.bumpKind !== "patch" && bump.bumpKind !== "none"
-        ? `this is a ${bump.bumpKind} update`
+        ? `this is a ${bump.bumpKind} update (${from} → ${to})`
         : "",
       bump.targetSource === "explicit"
         ? "the version was chosen explicitly"
@@ -79,60 +79,36 @@ export function renderSummary(input: SummaryInput): Summary {
         ? "the recipe's scripts spell out its version or series"
         : "",
     ].filter(Boolean).join("; ");
-    lines.push(
-      `**Needs migration review:** ${why}. The build passed, but check that ` +
-        "nothing else in the recipe or its dependents assumes the old version.",
-      "",
+    const newer = [
+      bump.latestVersion && bump.latestVersion !== to
+        ? `Newest upstream: ${bump.latestVersion}.`
+        : "",
+      bump.latestInSeries && bump.latestInSeries !== to &&
+        bump.latestInSeries !== from
+        ? `Newest in the current series: ${bump.latestInSeries}.`
+        : "",
+    ].filter(Boolean).join(" ");
+    blocks.push(
+      `**Needs migration review:** ${why}. Check that nothing else in the ` +
+        `recipe or its dependents assumes the old version.` +
+        (newer ? ` ${newer}` : ""),
     );
   }
-  lines.push("## Version", "", `- Current: ${from}`, `- This PR: ${to}`);
-  if (bump.latestVersion && bump.latestVersion !== to) {
-    lines.push(`- Newest upstream: ${bump.latestVersion}`);
+  if (bump.releaseNotesUrl) {
+    blocks.push(`Release notes: ${bump.releaseNotesUrl}`);
   }
-  if (
-    bump.latestInSeries && bump.latestInSeries !== to &&
-    bump.latestInSeries !== from
-  ) {
-    lines.push(`- Newest in the current series: ${bump.latestInSeries}`);
-  }
-  lines.push("", "## Source hashes", "");
-  for (const s of change.sources) {
-    lines.push(`- \`${s.url}\``);
-    lines.push(
-      `  - was \`${short(s.blake3Before)}…\`, now \`${short(s.blake3After)}…\``,
+  const evidence = [`Built and validated locally on ${build.arch}.`];
+  if (input.dependents.length > 0) {
+    evidence.push(
+      `Dependents: ${input.dependents.map((d) => `\`${d}\``).join(", ")}.`,
     );
   }
-  lines.push(
-    "",
-    "## Build",
-    "",
-    `Built on ${build.arch}${build.noCache ? " without cache" : ""} in ` +
-      `${Math.round(build.durationMs / 1000)} s; \`mere dev validate\` passed.`,
-    "",
-  );
-  for (const o of build.outputs) {
-    lines.push(
-      `- \`${o.package}\` (${o.bytes} bytes, sha256 \`${short(o.sha256)}…\`)`,
-    );
-  }
-  lines.push("", "## Dependents", "");
-  lines.push(
-    input.dependents.length === 0
-      ? "No other recipe depends on this one."
-      : `${input.dependents.length} ${
-        input.dependents.length === 1 ? "recipe depends" : "recipes depend"
-      } on it: ${input.dependents.map((d) => `\`${d}\``).join(", ")}.`,
-  );
-  lines.push(
-    "",
-    "---",
-    `Opened by the \`recipe-bump\` workflow (run \`${input.runId}\`). ` +
-      "CI on `main` is the authoritative build; this is the local pre-check.",
-  );
+  blocks.push(evidence.join(" "));
+  blocks.push(`Opened by recipe-bump (run \`${input.runId}\`).`);
   return {
     title,
     commitMessage: title,
-    body: lines.join("\n"),
+    body: blocks.join("\n\n"),
     labels,
   };
 }

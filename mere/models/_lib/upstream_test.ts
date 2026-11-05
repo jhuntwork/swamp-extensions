@@ -56,11 +56,13 @@ Deno.test("github: newest stable tag, prefix inferred, prereleases skipped", asy
     ],
   });
   const result = await lookupLatest(ZLIB, providers(fetcher));
-  assertEquals(result, {
-    provider: "github",
-    latestVersion: "2.3.4",
-    latestInSeries: "2.3.4",
-  });
+  assertEquals(result.provider, "github");
+  assertEquals(result.latestVersion, "2.3.4");
+  assertEquals(result.latestInSeries, "2.3.4");
+  assertEquals(
+    result.releaseUrls?.["2.3.4"],
+    "https://github.com/zlib-ng/zlib-ng/releases/tag/2.3.4",
+  );
 });
 
 Deno.test("github: v-prefixed tags when the URL names the prefix", async () => {
@@ -150,6 +152,7 @@ Deno.test("anitya: by project id uses stable versions", async () => {
     projectId: 7,
     latestVersion: "2.1",
     latestInSeries: "2.0",
+    projectUrl: "https://release-monitoring.org/project/7/",
   });
 });
 

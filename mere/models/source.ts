@@ -50,6 +50,7 @@ const BumpSchema = z.object({
   latestInSeries: z.string().optional(),
   hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
   needsMigration: z.boolean(),
+  releaseNotesUrl: z.string().optional(),
   branch: z.string(),
   sources: z.array(z.object({
     url: z.string(),
@@ -515,6 +516,8 @@ export const behavior = {
             bytes: artifact.bytes,
           });
         }
+        const releaseNotesUrl = lookup.releaseUrls?.[targetVersion] ??
+          lookup.projectUrl;
         const kind = bumpKind(input.currentVersion, targetVersion, suffix);
         const hardcoded = a.hardcodedVersion as {
           exact: boolean;
@@ -537,6 +540,7 @@ export const behavior = {
               ? { latestInSeries: lookup.latestInSeries }
               : {}),
             hardcodedVersion: hardcoded,
+            ...(releaseNotesUrl ? { releaseNotesUrl } : {}),
             needsMigration: kind === "major" || kind === "minor" ||
               targetSource === "explicit" || hardcoded.exact ||
               hardcoded.series,
