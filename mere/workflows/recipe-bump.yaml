@@ -31,6 +31,10 @@ inputs:
     noCache:
       type: boolean
       default: true
+    expectedAuthorEmail:
+      type: string
+      default: ""
+      description: When set, the commit's author must have this email
     allowHardcodedVersion:
       type: boolean
       default: false
@@ -198,6 +202,7 @@ jobs:
             body: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.body }}
             prBinding: ${{ inputs.prBinding }}
             packetBinding: ${{ inputs.packetBinding }}
+            expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
         dependsOn: []
         weight: 0
         allowFailure: false

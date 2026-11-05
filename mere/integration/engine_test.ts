@@ -10,7 +10,8 @@ Deno.test("harness strips SWAMP_* except SWAMP_HOME", () => {
   assertEquals(env.SWAMP_REPO_DIR, undefined);
   assertEquals(env.SWAMP_HOME, "/h");
   assertEquals(env.PATH, "/bin");
-  assertEquals(env.SWAMP_NO_TELEMETRY, "1");
+  // Telemetry is the user's setting; the harness must not touch it.
+  assertEquals("SWAMP_NO_TELEMETRY" in env, false);
 });
 
 Deno.test("both mere types register on the real engine", async () => {

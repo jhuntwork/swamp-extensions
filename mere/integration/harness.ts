@@ -28,8 +28,6 @@ export function swampEnv(
   }
   return {
     ...env,
-    SWAMP_NO_TELEMETRY: "1",
-    SWAMP_NO_UPDATE_CHECK: "1",
     ...extra,
   };
 }
