@@ -1,0 +1,220 @@
+id: 29d815ec-61b9-4472-b17c-df785b8a9f88
+autoResume: true
+name: "@jeremy/mere/recipe-bump"
+description: >-
+  Bump one merelinux recipe: decide the target version, download and hash its
+  sources, edit the recipe in a per-run worktree, validate and build it with
+  mere, write the PR text from data, then hand the change to deliver-change.
+  No model calls. Defaults to the newest stable release in the recipe's
+  current series; pass version to move to another.
+tags: {}
+inputs:
+  properties:
+    recipe:
+      type: string
+      description: "<category>/<name>, for example core/zlib-ng"
+    version:
+      type: string
+      default: ""
+      description: Empty targets the newest release in the current series
+    recipeBinding:
+      type: string
+      default: merelinux
+    sourceBinding:
+      type: string
+      default: merelinux-upstream
+    prBinding:
+      type: string
+      default: merelinux-pr
+    packetBinding:
+      type: string
+      default: mere-change-packets
+    noCache:
+      type: boolean
+      default: true
+    expectedAuthorEmail:
+      type: string
+      default: ""
+      description: When set, the commit's author must have this email
+    requireApproval:
+      type: boolean
+      default: false
+      description: Stop for approval before the branch is pushed and the PR opened
+    allowHardcodedVersion:
+      type: boolean
+      default: false
+      description: Proceed for a recipe whose scripts spell out its version
+  required:
+    - recipe
+jobs:
+  - name: prepare
+    steps:
+      - name: scan
+        description: Update the checkout and parse the tree
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: scan
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: plan
+        description: Pick the target version and hash its sources
+        task:
+          type: behavior
+          behavior: ${{ inputs.sourceBinding }}
+          methodName: prepareBump
+          inputs:
+            recipeBinding: ${{ inputs.recipeBinding }}
+            recipe: ${{ inputs.recipe }}
+            version: ${{ inputs.version }}
+        dependsOn:
+          - step: scan
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+  - name: build
+    steps:
+      - name: workspace
+        description: Paths for this bump; the worktree is named by the branch
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: workspace
+          inputs:
+            key: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: clean
+        description: Remove a stale worktree and local branch from an earlier try
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: cleanWorktree
+          inputs:
+            key: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
+            branch: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
+        dependsOn:
+          - step: workspace
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: worktree
+        description: A per-run worktree on the bump branch
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-bump-" + run.id }}
+          methodName: ensure_worktree
+          inputs:
+            repoPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.checkoutPath }}
+            path: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
+            root: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreeRoot }}
+            branch: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
+            base: ${{ "refs/heads/" + data.latest(inputs.recipeBinding, "workspace").attributes.ref }}
+        dependsOn:
+          - step: clean
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: set-version
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: setVersion
+          inputs:
+            recipe: ${{ inputs.recipe }}
+            version: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.targetVersion }}
+            sources: >-
+              ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.sources.map(s, {"url": s.url, "blake3": s.blake3}) }}
+            checkoutPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
+            allowHardcodedVersion: ${{ inputs.allowHardcodedVersion }}
+        dependsOn:
+          - step: worktree
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: validate
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: validate
+          inputs:
+            recipe: ${{ inputs.recipe }}
+            checkoutPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
+        dependsOn:
+          - step: set-version
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: build
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: build
+          inputs:
+            recipe: ${{ inputs.recipe }}
+            checkoutPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
+            noCache: ${{ inputs.noCache }}
+        dependsOn:
+          - step: validate
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: summarize
+        description: Write the PR text from recorded data
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: summarize
+          inputs:
+            recipe: ${{ inputs.recipe }}
+            sourceBinding: ${{ inputs.sourceBinding }}
+            runId: ${{ run.id }}
+        dependsOn:
+          - step: build
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn:
+      - job: prepare
+        condition:
+          type: succeeded
+    weight: 0
+  - name: deliver
+    steps:
+      - name: deliver-change
+        task:
+          type: workflow
+          workflowIdOrName: "@jeremy/mere/deliver-change"
+          inputs:
+            worktreePath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
+            branch: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
+            baseSha: ${{ data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.baseCommit }}
+            allowedPaths: ${{ [data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.path] }}
+            commitMessage: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.commitMessage }}
+            title: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.title }}
+            body: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.body }}
+            prBinding: ${{ inputs.prBinding }}
+            packetBinding: ${{ inputs.packetBinding }}
+            expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            requireApproval: ${{ inputs.requireApproval }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn:
+      - job: build
+        condition:
+          type: succeeded
+    weight: 0
+version: 1

@@ -1,0 +1,168 @@
+recipe {
+    name "busybox"
+    version "1.37.0"
+    release 10
+    description "Tiny versions of common UNIX utilities built into a single binary"
+    url "http://busybox.net"
+    licenses "GPL"
+    archs "aarch64" "x86_64"
+    needs-root true
+    depends "linux-headers" \
+            "llvm" \
+            "make" \
+            "mimalloc-dev" \
+            "musl-dev" \
+            "patch" \
+            "skalibs-dev" \
+            "utmps-dev"
+}
+
+source "http://busybox.net/downloads/${recipe.name}-${recipe.version}.tar.bz2" {
+    blake3 "179c4567a112635be6cb442fd8e3ff95dd0e718facd0666f2426d94322110a8f"
+}
+
+source "awk-sub-literal-backslash.patch" {
+    blake3 "46c8ce13e4a032ce2cb7f59b22ac85fe2f5da632866df11b53dc216499719c51"
+}
+
+source "clang-aarch64-const-ptr.patch" {
+    blake3 "012d5208343c9a26f292ab56101ecb6d16ba8e94ab58716034daa3ffe0172e47"
+}
+
+source "CVE-2023-42366-awk-regex.patch" {
+    blake3 "a25b0ce9d36091e9368ccd527dec9594582cce097c5de17ad33c7c85b4543a90"
+}
+
+source "tar-malicious-content-masking.patch" {
+    blake3 "0282fb1dc9313540934dd6b117bcfbf1ec082e49c9bc730d51b9d146368baf9e"
+}
+
+source "tar-toctou-symlink-race.patch" {
+    blake3 "a23d2a0a53dbf6e7399a5f377d9b93801fe657cc1bdbb4cb80a5672da0332252"
+}
+
+source "CVE-2024-58251-netstat-sanitize.patch" {
+    blake3 "ea838a7e5876f69ceac7123b3bc1c9b1aa2f0513e98bef74df87c72c043fdc91"
+}
+
+source "sockaddr2str-sanitize.patch" {
+    blake3 "28edce49566488a623d3c31bc2a797ac0fe8aaf5ed90249483fbfc4951338556"
+}
+
+source "nslookup-sanitize.patch" {
+    blake3 "e326e3e219c56a42f826e74fbaf669da138cab4bb1c7708a270f5fc062586b59"
+}
+
+source "busybox-config" {
+    blake3 "1683619d1ff1eeb55381e4087dd0798e89038479eaf9a060d2d6cd9d3e60da92"
+}
+
+source "udhcpc.script" {
+    blake3 "a195efb027fa41a65428bd89067ad04cd2f74246df64a1a703c4a355e47782e9"
+}
+
+source "sysctl.conf" {
+    blake3 "d4251bc26526a1a945baa08edf688b7b03ca2eb87d425b6b6a4ec889bdb07faf"
+}
+
+source "ntp.conf" {
+    blake3 "524c0cf519c0f60df41020065029765e6520cc191d530c8f534004cc0ba72eba"
+}
+
+source "if-pre-up-bridge" {
+    blake3 "d45a68548e60c635e903d4ce4374a06d9ae451165d89033725b9ca2d949b56ad"
+}
+
+source "if-post-down-bridge" {
+    blake3 "bd373cf54e62490dcbd48499f7034ea145a3e2696c9a8e96deef0f88c3a1f94c"
+}
+
+source "mkinitramfs" {
+    blake3 "8cadedb721b513429b1c3f323fdefaf88a03116373f3139a74a5c2e1b2e922c5"
+}
+
+source "initramfs-init" {
+    blake3 "a40bace03b8b1502ab96000c39c0c3adb7a84ec475db2c458ffa5b046abedaf4"
+}
+
+build {
+    script r#"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/awk-sub-literal-backslash.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/clang-aarch64-const-ptr.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/CVE-2023-42366-awk-regex.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/tar-malicious-content-masking.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/tar-toctou-symlink-race.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/CVE-2024-58251-netstat-sanitize.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/sockaddr2str-sanitize.patch"
+        patch -Np1 -i "${MERE_SOURCES_DIR}/nslookup-sanitize.patch"
+        sed "/CONFIG_PREFIX/s@=.*@=\"${DESTDIR}/\"@" \
+          "${MERE_SOURCES_DIR}/busybox-config" >.config
+        case "${recipe.arch}" in
+            aarch64) sed -i 's/CONFIG_\(SHA[0-9]*_HWACCEL\)=y/# CONFIG_\1 is not set/' .config ;;
+        esac
+        sed -i -e 's@<none>@-lutmps -lskarnet@' \
+            -e '/^l_list=/s@$LDLIBS@-lutmps -lskarnet@' \
+            scripts/trylink
+        make CFLAGS="$CFLAGS -static" \
+            LDLIBS='-lutmps -lskarnet' \
+            HOSTCC=cc CC=cc
+    "#
+}
+
+install {
+    script r#"
+        make CFLAGS="$CFLAGS -static" \
+            LDLIBS='-lutmps -lskarnet' \
+            HOSTCC=cc CC=cc install
+        install -d "${DESTDIR}/usr/share/man/man1"
+        install -m0644 "docs/busybox.1" "${DESTDIR}/usr/share/man/man1/"
+        cd "$DESTDIR" || return 1
+
+        # Setuid
+        chmod u+s bin/busybox
+
+        # configuration/scripts
+        install -d etc/network/if-pre-up.d
+        install -m 0755 "${MERE_SOURCES_DIR}/if-pre-up-bridge" \
+            etc/network/if-pre-up.d/01-bridge
+        install -d etc/network/if-up.d
+        install -d etc/network/if-down.d
+        install -d etc/network/if-post-down.d
+        install -m 0755 "${MERE_SOURCES_DIR}/if-post-down-bridge" \
+            etc/network/if-post-down.d/01-bridge
+        install -d usr/share/udhcpc
+        install -m 0755 "${MERE_SOURCES_DIR}/udhcpc.script" \
+            usr/share/udhcpc/default.script
+        install -m 0644 "${MERE_SOURCES_DIR}/sysctl.conf" etc/
+        install -m 0644 "${MERE_SOURCES_DIR}/ntp.conf" etc/ntp.conf
+        install -d sbin usr/bin usr/share/mkinitramfs
+        ln -s ../../bin/busybox usr/bin/env
+        ln -s ../../bin/busybox usr/bin/awk
+        install -m 0755 "${MERE_SOURCES_DIR}/mkinitramfs" usr/bin/
+        install -m 0644 "${MERE_SOURCES_DIR}/initramfs-init" usr/share/mkinitramfs/init.in
+    "#
+}
+
+package "busybox" {
+    files "bin/" \
+          "etc/" \
+          "sbin/" \
+          "usr/"
+
+    service "ntpd" {
+        type "daemon"
+        command "ntpd" "-d" "-n"
+    }
+
+    service "syslogd" {
+        type "daemon"
+        command "syslogd" "-n" "-O" "/proc/self/fd/1"
+    }
+
+    service "klogd" {
+        type "daemon"
+        command "klogd" "-n"
+        depends-on "syslogd"
+        log false
+    }
+}

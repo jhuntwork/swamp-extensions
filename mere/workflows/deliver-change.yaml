@@ -1,0 +1,355 @@
+id: dad80562-7653-498f-bedf-44b1d17c2602
+autoResume: true
+name: "@jeremy/mere/deliver-change"
+description: >-
+  Commit a worktree's change, check the commit against the commit standards,
+  push its branch, check the pushed diff is only what was expected, build and
+  verify a change packet, then plan, create and read back the pull request as
+  an ordinary PR. Optionally stops for a person's approval before anything is
+  pushed (requireApproval). Never merges: the merge is manual.
+tags: {}
+inputs:
+  properties:
+    worktreePath:
+      type: string
+    branch:
+      type: string
+    baseSha:
+      type: string
+      description: Full commit the branch was cut from
+    allowedPaths:
+      type: array
+      items:
+        type: string
+      description: The only paths the change may touch
+    commitMessage:
+      type: string
+    title:
+      type: string
+    body:
+      type: string
+    repository:
+      type: string
+      default: jhuntwork/merelinux
+    baseRef:
+      type: string
+      default: main
+    prBinding:
+      type: string
+      default: merelinux-pr
+      description: "@jeremy/github-pr behavior bound to the repository"
+    packetBinding:
+      type: string
+      default: mere-change-packets
+      description: "@jeremy/change-packet behavior"
+    subjectMaxLength:
+      type: integer
+      default: 69
+      description: Longest commit subject allowed
+    subjectPattern:
+      type: string
+      default: "^[a-z0-9][a-z0-9._+-]*: [a-z0-9].*$"
+      description: "Regex the commit subject must match (merelinux style: name, colon, verb phrase)"
+    allowBody:
+      type: boolean
+      default: false
+      description: Allow a commit body (trailers are refused either way)
+    branchPattern:
+      type: string
+      default: "^bump-[a-z0-9._-]+$"
+    expectedAuthorEmail:
+      type: string
+      default: ""
+      description: When set, the commit's author must have this email
+    requireApproval:
+      type: boolean
+      default: false
+      description: >-
+        Stop for a person's approval before the branch is pushed and the PR
+        opened. Off by default: the PR is the review surface and the merge is
+        manual.
+    checkName:
+      type: string
+      default: recipe-validation
+    checkDetail:
+      type: string
+      default: The recipe validated and built in an isolated mere root.
+  required:
+    - worktreePath
+    - branch
+    - baseSha
+    - allowedPaths
+    - commitMessage
+    - title
+    - body
+jobs:
+  - name: prepare
+    steps:
+      - name: check-message
+        description: The commit message, PR title and branch meet the standards
+        task:
+          type: model_method
+          modelType: "@jeremy/mere/policy"
+          modelName: ${{ "mere-policy-" + run.id }}
+          methodName: checkCommit
+          inputs:
+            message: ${{ inputs.commitMessage }}
+            title: ${{ inputs.title }}
+            branch: ${{ inputs.branch }}
+            maxSubjectLength: ${{ inputs.subjectMaxLength }}
+            subjectPattern: ${{ inputs.subjectPattern }}
+            allowBody: ${{ inputs.allowBody }}
+            branchPattern: ${{ inputs.branchPattern }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: commit
+        description: Commit only the allowed paths
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: commit
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            message: ${{ inputs.commitMessage }}
+            paths: ${{ inputs.allowedPaths }}
+            addAll: false
+        dataOutputOverrides:
+          - specName: commitResult
+            lifetime: workflow
+        dependsOn:
+          - step: check-message
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: read-commit
+        description: Read back the commit that was actually made
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: log
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            maxCount: 1
+            format: "%an <%ae>%n%B"
+        dataOutputOverrides:
+          - specName: logResult
+            lifetime: workflow
+        dependsOn:
+          - step: commit
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: verify-commit
+        description: The real commit has the expected subject, no body or trailers, and the expected author
+        task:
+          type: model_method
+          modelType: "@jeremy/mere/policy"
+          modelName: ${{ "mere-policy-" + run.id }}
+          methodName: checkCommit
+          inputs:
+            rawCommit: >-
+              ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.raw }}
+            expectedSubject: ${{ inputs.commitMessage.split("\n")[0] }}
+            expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            maxSubjectLength: ${{ inputs.subjectMaxLength }}
+            subjectPattern: ${{ inputs.subjectPattern }}
+            allowBody: ${{ inputs.allowBody }}
+            branchPattern: ${{ inputs.branchPattern }}
+        dependsOn:
+          - step: read-commit
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+  - name: gate
+    steps:
+      - name: approve-push
+        description: Optional gate before anything leaves this machine
+        guard: ${{ !inputs.requireApproval }}
+        task:
+          type: manual_approval
+          prompt: ${{ "Push " + inputs.branch + " to " + inputs.repository + " and open a pull request? " + inputs.title }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn:
+      - job: prepare
+        condition:
+          type: succeeded
+    weight: 0
+  - name: publish
+    steps:
+      - name: push
+        description: Push the branch; never forced
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: push
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            remote: origin
+            branch: ${{ inputs.branch }}
+            setUpstream: true
+            force: false
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: diff
+        description: List what the pushed branch changes against its base
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: diff
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            base: ${{ inputs.baseSha }}
+            head: HEAD
+            nameOnly: true
+            threeWay: true
+        dataOutputOverrides:
+          - specName: diffResult
+            lifetime: workflow
+        dependsOn:
+          - step: push
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: assert-scoped
+        description: The pushed diff is not empty and has only allowed paths
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.size() > 0 &&
+            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.all(path, inputs.allowedPaths.exists(allowed, allowed == path))
+          message: The pushed diff is empty or contains a path outside the expected change.
+          severity: high
+        dependsOn:
+          - step: diff
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: create-packet
+        task:
+          type: behavior
+          behavior: ${{ inputs.packetBinding }}
+          methodName: create
+          inputs:
+            targetRepository: ${{ inputs.repository }}
+            sourceRepository: ${{ inputs.repository }}
+            base:
+              ref: ${{ inputs.baseRef }}
+              sha: ${{ inputs.baseSha }}
+            head:
+              ref: ${{ inputs.branch }}
+              sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+            changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
+            checks:
+              - name: ${{ inputs.checkName }}
+                required: true
+                outcome: passed
+                evidenceRef: ${{ "swamp://local/workflow/" + run.id }}
+                detail: ${{ inputs.checkDetail }}
+            submission:
+              title: ${{ inputs.title }}
+              body: ${{ inputs.body }}
+              draft: false
+        dataOutputOverrides:
+          - specName: packet
+            lifetime: workflow
+        dependsOn:
+          - step: assert-scoped
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: verify-packet
+        task:
+          type: behavior
+          behavior: ${{ inputs.packetBinding }}
+          methodName: verify
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+        dependsOn:
+          - step: create-packet
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: assert-packet
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.packetBinding + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.valid == true &&
+            data.query('modelName == "' + inputs.packetBinding + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.readiness.ready == true
+          message: The change packet failed integrity or readiness verification.
+          severity: high
+        dependsOn:
+          - step: verify-packet
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: plan-pr
+        task:
+          type: behavior
+          behavior: ${{ inputs.prBinding }}
+          methodName: planPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+        dependsOn:
+          - step: assert-packet
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: apply-pr
+        task:
+          type: behavior
+          behavior: ${{ inputs.prBinding }}
+          methodName: applyPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            plan: >-
+              ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+        dependsOn:
+          - step: plan-pr
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: verify-pr
+        task:
+          type: behavior
+          behavior: ${{ inputs.prBinding }}
+          methodName: verifyPr
+          inputs:
+            packet: >-
+              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            result: >-
+              ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+        dependsOn:
+          - step: apply-pr
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn:
+      - job: gate
+        condition:
+          type: completed
+    weight: 0
+version: 1
