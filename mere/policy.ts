@@ -3,7 +3,7 @@ import {
   checkCommit,
   DEFAULT_RULES,
   parseRawCommit,
-} from "./_lib/commit_policy.ts";
+} from "./models/_lib/commit_policy.ts";
 
 const CheckCommitArgs = z.object({
   message: z.string().default("").describe(

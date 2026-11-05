@@ -51,7 +51,7 @@ Deno.test("deliver-change refuses a commit that breaks the standards before it c
       const run = await repo.json([
         "workflow",
         "run",
-        "deliver-change",
+        "@jeremy/mere/deliver-change",
         "--input",
         "worktreePath=/nonexistent",
         "--input",

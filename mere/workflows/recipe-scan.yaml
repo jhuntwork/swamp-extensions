@@ -1,5 +1,6 @@
 id: 47f78aa9-727f-4d8d-ada1-32688f61d7e2
-name: recipe-scan
+autoResume: true
+name: "@jeremy/mere/recipe-scan"
 description: >-
   Parse every merelinux recipe, then look up each one's latest upstream
   version. Read-only and token-free; run on a schedule, then read the

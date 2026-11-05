@@ -1,9 +1,10 @@
 import { z } from "npm:zod@4.1.12";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { parseRecipe, parseUpstreamOverride } from "./_lib/kdl.ts";
-import { setVersion } from "./_lib/edit.ts";
-import { findDependents, renderSummary } from "./_lib/bump.ts";
-import { runChecked, runCommand } from "./_lib/runner.ts";
+import { parseRecipe, parseUpstreamOverride } from "./models/_lib/kdl.ts";
+import { setVersion } from "./models/_lib/edit.ts";
+import { findDependents, renderSummary } from "./models/_lib/bump.ts";
+import { runChecked, runCommand } from "./models/_lib/runner.ts";
 
 const GlobalArgs = z.object({
   repoUrl: z.string().min(1).default(
@@ -354,7 +355,6 @@ async function listOutputs(
 }
 
 async function sha256OfFile(path: string): Promise<string> {
-  const { createHash } = await import("node:crypto");
   const hash = createHash("sha256");
   const file = await Deno.open(path, { read: true });
   for await (const chunk of file.readable) hash.update(chunk);

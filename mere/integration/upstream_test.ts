@@ -144,17 +144,21 @@ Deno.test({
       const validated = await repo.json([
         "workflow",
         "validate",
-        "recipe-scan",
+        "@jeremy/mere/recipe-scan",
       ]);
       assertEquals(validated.passed, true);
-      const run = await repo.json(["workflow", "run", "recipe-scan"]);
+      const run = await repo.json([
+        "workflow",
+        "run",
+        "@jeremy/mere/recipe-scan",
+      ]);
       assertEquals(run.status, "succeeded");
       const report = await repo.swamp([
         "report",
         "get",
         "@jeremy/mere/upstream-drift",
         "--workflow",
-        "recipe-scan",
+        "@jeremy/mere/recipe-scan",
         "--markdown",
       ]);
       assertEquals(report.code, 0, report.stderr);

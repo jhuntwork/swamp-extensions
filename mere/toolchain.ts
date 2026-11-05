@@ -1,14 +1,14 @@
 import { z } from "npm:zod@4.1.12";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { runChecked } from "./_lib/runner.ts";
+import { runChecked } from "./models/_lib/runner.ts";
 import {
   assertIsolatedRoot,
   DEFAULT_CONFIG_URL,
   DEFAULT_KEY_URL,
   ensureRoot,
   rootState,
-} from "./_lib/root.ts";
+} from "./models/_lib/root.ts";
 
 const GlobalArgs = z.object({
   mereVersion: z.string().regex(

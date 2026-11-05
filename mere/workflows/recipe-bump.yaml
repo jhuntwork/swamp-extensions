@@ -1,5 +1,6 @@
 id: 29d815ec-61b9-4472-b17c-df785b8a9f88
-name: recipe-bump
+autoResume: true
+name: "@jeremy/mere/recipe-bump"
 description: >-
   Bump one merelinux recipe: decide the target version, download and hash its
   sources, edit the recipe in a per-run worktree, validate and build it with
@@ -195,7 +196,7 @@ jobs:
       - name: deliver-change
         task:
           type: workflow
-          workflowIdOrName: deliver-change
+          workflowIdOrName: "@jeremy/mere/deliver-change"
           inputs:
             worktreePath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
             branch: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}

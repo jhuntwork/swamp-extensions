@@ -34,6 +34,8 @@ export async function runCommand(
   ]);
   signal.throwIfAborted();
   const start = performance.now();
+  // Mere is a local CLI; direct argv execution avoids shell interpolation.
+  // swamp-quality-ignore deno-command
   const child = new Deno.Command(command, {
     args,
     cwd: options.cwd,

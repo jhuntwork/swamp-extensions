@@ -1,5 +1,6 @@
 id: dad80562-7653-498f-bedf-44b1d17c2602
-name: deliver-change
+autoResume: true
+name: "@jeremy/mere/deliver-change"
 description: >-
   Commit a worktree's change, check the commit against the commit standards,
   push its branch, check the pushed diff is only what was expected, build and

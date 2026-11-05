@@ -1,4 +1,4 @@
-# Mere domain behaviors (draft)
+# Mere domain behaviors (phase 1)
 
 This is the first implementation slice of the design in `jhuntwork/mere-ops`.
 The existing `mere-dev`, `mere-shell`, and `mere-pm-dev` packages remain active.
@@ -45,14 +45,19 @@ Implemented:
   recipes that needed normalisation. Read-only and token-free; the schedule
   belongs in the ops repo's `serve.yaml`, since a bundled workflow cannot be
   edited. Read it with
-  `swamp report get @jeremy/mere/upstream-drift --workflow recipe-scan --markdown`.
+  `swamp report get @jeremy/mere/upstream-drift --workflow @jeremy/mere/recipe-scan --markdown`.
 
-- `source.latest` and `source.scanLatest`: newest stable upstream version from
-  GitHub tags and releases, else Anitya (matched on the recipe homepage).
+- `@jeremy/mere/tree`: fixed-argv `fmtCheck`, `build`, `test`, `releaseBuild`,
+  and `smoke` methods for an isolated Mere source tree. Every source path is
+  realpath-checked under the repository's `.swamp/mere` directory, subprocess
+  output is bounded, and unsuccessful commands fail the method.
 
-Not implemented: `importOutputs`, a real run of the GitHub steps, signing-key
-handling, serve deployment, and registry publication. This package is not ready
-for use.
+- `@jeremy/mere/build-summary`: workflow report for recipe build outcomes,
+  package outputs, durations, and failure phases.
+
+- `@jeremy/mere/mere-change`: source-tree validation followed by the shared
+  delivery workflow. The pre-PR approval is optional and defaults off; merge
+  remains manual.
 
 ## Parser conformance
 
@@ -73,7 +78,7 @@ Run with Deno 2:
 
 ```sh
 deno fmt --check mere
-deno lint mere/models
+deno lint mere
 deno test --allow-read --allow-write --allow-run --allow-env mere/models
 # real engine, in throwaway swamp repos (needs `swamp` on PATH):
 deno test --allow-read --allow-write --allow-run --allow-env mere/integration
@@ -81,15 +86,20 @@ deno test --allow-read --allow-write --allow-run --allow-env mere/integration
 MERE_INTEGRATION_NET=1 deno test --allow-read --allow-write --allow-run --allow-env --allow-net mere/integration
 ```
 
-mere's store entries are read-only by design, so removing a provisioned root
-needs `chmod -R u+rwX` first (the integration harness does this).
+The extension manifest and registry archive can be checked from the package
+directory:
 
-Tests cover digest correctness, saved bytes, partial-download cleanup, URL
-policy, bounded simultaneous subprocess output, literal argv, and cancellation.
+```sh
+cd mere
+swamp extension fmt manifest.yaml --check --json
+swamp extension push manifest.yaml --dry-run --json
+```
+
 The integration suite loads the extension on the real engine and runs methods
-through the swamp CLI. Workflow validation is not yet covered.
+through the swamp CLI. The `mere-change` workflow has also run against a real
+Mere checkout and delivered PR #88.
 
-## Design details to resolve before workflow implementation
+## Remaining follow-up
 
 - Preserve active per-run worktrees across methods; do not reset edits before
   validation/build.
@@ -99,5 +109,5 @@ through the swamp CLI. Workflow validation is not yet covered.
   worker unchanged. See Swamp's extension behavior API, Cross-Behavior Access.
 - Preflight checks cannot provision other behaviors; provisioning belongs in
   method execution or an earlier workflow step.
-- Scaffold workflow IDs with `swamp workflow create` after authentication is
-  available; this draft does not fabricate workflow IDs or YAML.
+- Add `importOutputs`, signing-key handling, CI observation, and serve
+  deployment in the next phase.

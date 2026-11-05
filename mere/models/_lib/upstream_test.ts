@@ -119,13 +119,16 @@ Deno.test("github: a rate limit surfaces as RateLimited", async () => {
 });
 
 Deno.test("a stalled request fails that lookup after the per-request timeout", async () => {
-  const stalled: typeof fetch = (_input, init) =>
+  const stalled = ((
+    _input: RequestInfo | URL,
+    init?: globalThis.RequestInit,
+  ) =>
     new Promise((_resolve, reject) => {
       init?.signal?.addEventListener(
         "abort",
         () => reject(init.signal!.reason),
       );
-    });
+    })) as typeof fetch;
   await assertRejects(
     () => lookupLatest(ZLIB, { ...providers(stalled), requestTimeoutMs: 50 }),
     Error,

@@ -146,13 +146,14 @@ Deno.test({
       );
 
       assertEquals(
-        (await repo.json(["workflow", "validate", "recipe-bump"])).passed,
+        (await repo.json(["workflow", "validate", "@jeremy/mere/recipe-bump"]))
+          .passed,
         true,
       );
       const run = await repo.json([
         "workflow",
         "run",
-        "recipe-bump",
+        "@jeremy/mere/recipe-bump",
         "--input",
         "recipe=core/inih",
         "--input",
@@ -197,7 +198,7 @@ Deno.test({
       const gated = await repo.json([
         "workflow",
         "run",
-        "recipe-bump",
+        "@jeremy/mere/recipe-bump",
         "--input",
         "recipe=core/inih",
         "--input",

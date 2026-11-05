@@ -3,7 +3,7 @@ import {
   type ScanSummary,
   summarizeDrift,
   type UpstreamRecord,
-} from "../models/_lib/drift.ts";
+} from "./models/_lib/drift.ts";
 
 interface Handle {
   name: string;

@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "./_lib/assert_test.ts";
 import { assertIsolatedRoot, ensureRoot, rootState } from "./_lib/root.ts";
-import { installBinary, resolvePaths, sha256File } from "./toolchain.ts";
+import { installBinary, resolvePaths, sha256File } from "../toolchain.ts";
 import { join } from "node:path";
 
 const FAKE_MERE = `#!/bin/sh

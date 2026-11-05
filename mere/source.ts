@@ -7,13 +7,13 @@ import {
   type LookupInput,
   lookupLatest,
   RateLimited,
-} from "./_lib/upstream.ts";
-import { runCommand } from "./_lib/runner.ts";
+} from "./models/_lib/upstream.ts";
+import { runCommand } from "./models/_lib/runner.ts";
 import {
   bumpKind,
   compareVersions,
   normalizePatchSuffix,
-} from "./_lib/versions.ts";
+} from "./models/_lib/versions.ts";
 
 const GlobalArgs = z.object({
   githubToken: z.string().default("").meta({ sensitive: true }).describe(
