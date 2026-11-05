@@ -1,6 +1,7 @@
 import { z } from "npm:zod@4.1.12";
 import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./_lib/kdl.ts";
+import { setVersion } from "./_lib/edit.ts";
 import { runChecked } from "./_lib/runner.ts";
 
 const GlobalArgs = z.object({
@@ -59,6 +60,38 @@ const RecipeSchema = z.object({
   }).optional(),
   commit: z.string(),
   schemaVersion: z.literal(1),
+});
+
+const ChangeSchema = z.object({
+  recipe: z.string(),
+  path: z.string(),
+  checkoutPath: z.string(),
+  baseCommit: z.string(),
+  version: z.object({ before: z.string(), after: z.string() }),
+  release: z.object({ before: z.number().int(), after: z.number().int() }),
+  sources: z.array(z.object({
+    url: z.string(),
+    blake3Before: z.string(),
+    blake3After: z.string(),
+  })),
+  fileSha256Before: z.string(),
+  fileSha256After: z.string(),
+  hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
+  schemaVersion: z.literal(1),
+});
+
+const SetVersionArgs = z.object({
+  recipe: z.string().regex(/^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i),
+  version: z.string().min(1),
+  release: z.number().int().nonnegative().default(1),
+  sources: z.array(z.object({
+    url: z.string().min(1).describe("The source URL as written in the recipe"),
+    blake3: z.string().regex(/^[a-f0-9]{64}$/),
+  })).default([]),
+  checkoutPath: z.string().min(1).describe(
+    "The per-run worktree to edit. Never the shared checkout; required.",
+  ),
+  allowHardcodedVersion: z.boolean().default(false),
 });
 
 const ScanSchema = z.object({
@@ -186,6 +219,12 @@ export const behavior = {
       lifetime: "infinite",
       garbageCollection: 20,
     },
+    change: {
+      description: "A recorded edit of one recipe: before and after",
+      schema: ChangeSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
     scan: {
       description:
         "Outcome of a tree scan, including recipes that failed to parse",
@@ -195,6 +234,54 @@ export const behavior = {
     },
   },
   methods: {
+    setVersion: {
+      description:
+        "Move a recipe to a new version in a worktree: edits only the version " +
+        "line, the release line and the blake3 of each source whose URL " +
+        "carries ${recipe.version}; every other byte is preserved. The result " +
+        "is re-parsed and compared with the original before it is written. " +
+        "Refuses recipes that spell out their version in scripts unless told to.",
+      kind: "action",
+      arguments: SetVersionArgs,
+      execute: async (
+        args: z.infer<typeof SetVersionArgs>,
+        context: Context,
+      ) => {
+        if (!args.checkoutPath.startsWith("/")) {
+          throw new Error("checkoutPath must be an absolute path");
+        }
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const file = join(args.checkoutPath, rel);
+        const text = await Deno.readTextFile(file);
+        const hashes: Record<string, string> = {};
+        for (const source of args.sources) {
+          if (source.url in hashes) {
+            throw new Error(`source "${source.url}" given twice`);
+          }
+          hashes[source.url] = source.blake3;
+        }
+        const baseCommit = await headCommit(args.checkoutPath, context.signal);
+        const edited = setVersion(text, rel, {
+          version: args.version,
+          release: args.release,
+          hashes,
+          allowHardcodedVersion: args.allowHardcodedVersion,
+        });
+        const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+        await Deno.writeTextFile(temporary, edited.text);
+        await Deno.rename(temporary, file);
+        const name = args.recipe.split("/")[1];
+        const handle = await context.writeResource("change", `change-${name}`, {
+          recipe: args.recipe,
+          path: rel,
+          checkoutPath: args.checkoutPath,
+          baseCommit,
+          ...edited.change,
+          schemaVersion: 1,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
     read: {
       description: "Parse one recipe (<category>/<name>) from the checkout.",
       kind: "read",

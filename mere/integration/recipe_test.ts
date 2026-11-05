@@ -157,3 +157,68 @@ Deno.test("upstream.kdl overrides are read, and a bad one is reported without hi
     await Deno.remove(tree, { recursive: true });
   }
 });
+
+Deno.test("setVersion edits a worktree recipe and records the change", async () => {
+  const repo = await createRepo();
+  const tree = await fixtureCheckout();
+  try {
+    await createRecipe(repo, "merelinux", [
+      "--global-arg",
+      `checkoutPath=${tree}`,
+      "--global-arg",
+      "ensureCheckout=false",
+    ]);
+    const url =
+      "https://github.com/zlib-ng/zlib-ng/archive/refs/tags/${recipe.version}.tar.gz";
+    const hash = "c".repeat(64);
+    const run = await repo.json([
+      "behavior",
+      "run",
+      "merelinux",
+      "setVersion",
+      "--input",
+      "recipe=core/zlib-ng",
+      "--input",
+      "version=2.3.4",
+      "--input",
+      `checkoutPath=${tree}`,
+      "--input",
+      `sources:json=${JSON.stringify([{ url, blake3: hash }])}`,
+    ]);
+    assertEquals(run.status, "succeeded");
+    const change = (run.dataArtifacts as {
+      name: string;
+      attributes: Record<string, unknown>;
+    }[])
+      .find((a) => a.name === "change-zlib-ng")!.attributes;
+    assertEquals(change.version, { before: "2.3.3", after: "2.3.4" });
+    assertEquals(change.release, { before: 7, after: 1 });
+    const diff = await new Deno.Command("git", {
+      args: ["diff", "--numstat"],
+      cwd: tree,
+    }).output();
+    // version, release and blake3: three lines changed, nothing else.
+    assertEquals(
+      new TextDecoder().decode(diff.stdout).trim().split("\t").slice(0, 2),
+      ["3", "3"],
+    );
+    // It refuses a missing hash and leaves the file as it is.
+    const refused = await repo.json([
+      "behavior",
+      "run",
+      "merelinux",
+      "setVersion",
+      "--input",
+      "recipe=core/zlib-ng",
+      "--input",
+      "version=2.3.5",
+      "--input",
+      `checkoutPath=${tree}`,
+    ]);
+    assertEquals(refused.code, "method_execution_failed");
+    assertEquals(String(refused.error).includes("no new BLAKE3"), true);
+  } finally {
+    await repo.cleanup();
+    await Deno.remove(tree, { recursive: true });
+  }
+});

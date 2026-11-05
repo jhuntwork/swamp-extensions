@@ -54,7 +54,7 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Does `text` contain `needle` as a whole version, not part of a longer number? */
 function mentionsVersion(text: string, needle: string): boolean {
-  return new RegExp(`(?<![\\d.])${escape(needle)}(?![\\d])`).test(text);
+  return new RegExp(`(?<!\\d)(?<!\\d\\.)${escape(needle)}(?![\\d])`).test(text);
 }
 
 export function findHardcodedVersion(
