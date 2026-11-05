@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere"
-version: "2026.11.04.8"
+version: "2026.11.04.9"
 description: "Mere domain behaviors: source artifacts, a pinned toolchain, and source-tree validation."
 license: MIT
 repository: "https://github.com/jhuntwork/swamp-extensions"
@@ -15,6 +15,7 @@ behaviors:
 reports:
   - upstream_drift.ts
   - build_summary.ts
+  - work_cost.ts
 workflows:
   - workflows/recipe-scan.yaml
   - workflows/recipe-bump.yaml
