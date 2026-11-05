@@ -6,8 +6,10 @@ import { findDependents, renderSummary } from "./_lib/bump.ts";
 import { runChecked, runCommand } from "./_lib/runner.ts";
 
 const GlobalArgs = z.object({
-  repoUrl: z.string().url().default(
+  repoUrl: z.string().min(1).default(
     "https://github.com/jhuntwork/merelinux.git",
+  ).describe(
+    "Git URL of the recipe repository: https, ssh:// or scp-style (git@host:path).",
   ),
   ref: z.string().default("main"),
   checkoutPath: z.string().default("").describe(
