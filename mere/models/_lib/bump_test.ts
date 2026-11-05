@@ -44,7 +44,8 @@ const base: SummaryInput = {
 
 Deno.test("renderSummary for a plain patch bump", () => {
   const s = renderSummary(base);
-  assertEquals(s.title, "Upgrade zlib-ng to 2.3.4");
+  assertEquals(s.title, "zlib-ng: upgrade to 2.3.4");
+  assertEquals(s.commitMessage, s.title);
   assertEquals(s.labels, ["automated", "bump"]);
   assertEquals(s.body.includes("needs migration"), false);
   assertEquals(s.body.includes("2 recipes depend on it: `curl`, `git`"), true);
@@ -63,10 +64,8 @@ Deno.test("renderSummary for a plain patch bump", () => {
   assertEquals(same.body.includes("current series"), false);
   assertEquals(s.body.includes("`zlib-ng` (1234 bytes"), true);
   assertEquals(s.body.includes("run `run-1`"), true);
-  assertEquals(
-    s.commitMessage.startsWith("Upgrade zlib-ng to 2.3.4\n\n"),
-    true,
-  );
+  // Subject only: no body, no trailers, same text as the PR title.
+  assertEquals(s.commitMessage, "zlib-ng: upgrade to 2.3.4");
 });
 
 Deno.test("renderSummary flags migration review and shows newer versions", () => {

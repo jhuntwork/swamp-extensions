@@ -192,6 +192,11 @@ Deno.test({
         (await git(remote, "rev-list", "--count", "main..bump-inih-63")).trim(),
         "1",
       );
+      // The commit follows the standards: subject only, no trailers.
+      assertEquals(
+        (await git(remote, "log", "-1", "--format=%B", "bump-inih-63")).trim(),
+        "inih: upgrade to 63",
+      );
       const summary = await repo.json([
         "data",
         "query",

@@ -9,6 +9,7 @@ behaviors:
   - models/source.ts
   - models/toolchain.ts
   - models/recipe.ts
+  - models/policy.ts
 reports:
   - reports/upstream_drift.ts
 workflows:

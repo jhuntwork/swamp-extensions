@@ -55,7 +55,9 @@ export function renderSummary(input: SummaryInput): Summary {
   const { name, change, bump, build } = input;
   const from = change.version.before;
   const to = change.version.after;
-  const title = `Upgrade ${name} to ${to}`;
+  // The same subject for the commit and the PR title, in merelinux's
+  // `<name>: <verb phrase>` style; the detail lives in the PR body.
+  const title = `${name}: upgrade to ${to}`;
   const labels = ["automated", "bump"];
   if (bump.needsMigration) labels.push("needs-migration");
   const lines: string[] = [
@@ -129,7 +131,7 @@ export function renderSummary(input: SummaryInput): Summary {
   );
   return {
     title,
-    commitMessage: `${title}\n\n${lines[0]}`,
+    commitMessage: title,
     body: lines.join("\n"),
     labels,
   };

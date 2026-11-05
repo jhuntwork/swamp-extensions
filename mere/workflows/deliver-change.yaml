@@ -40,6 +40,25 @@ inputs:
       type: string
       default: mere-change-packets
       description: "@jeremy/change-packet behavior"
+    subjectMaxLength:
+      type: integer
+      default: 69
+      description: Longest commit subject allowed
+    subjectPattern:
+      type: string
+      default: "^[a-z0-9][a-z0-9._+-]*: [a-z0-9].*$"
+      description: "Regex the commit subject must match (merelinux style: name, colon, verb phrase)"
+    allowBody:
+      type: boolean
+      default: false
+      description: Allow a commit body (trailers are refused either way)
+    branchPattern:
+      type: string
+      default: "^bump-[a-z0-9._-]+$"
+    expectedAuthorEmail:
+      type: string
+      default: ""
+      description: When set, the commit's author must have this email
     checkName:
       type: string
       default: recipe-validation
@@ -57,6 +76,24 @@ inputs:
 jobs:
   - name: deliver
     steps:
+      - name: check-message
+        description: The commit message, PR title and branch meet the standards
+        task:
+          type: model_method
+          modelType: "@jeremy/mere/policy"
+          modelName: ${{ "mere-policy-" + run.id }}
+          methodName: checkCommit
+          inputs:
+            message: ${{ inputs.commitMessage }}
+            title: ${{ inputs.title }}
+            branch: ${{ inputs.branch }}
+            maxSubjectLength: ${{ inputs.subjectMaxLength }}
+            subjectPattern: ${{ inputs.subjectPattern }}
+            allowBody: ${{ inputs.allowBody }}
+            branchPattern: ${{ inputs.branchPattern }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
       - name: commit
         description: Commit only the allowed paths
         task:
@@ -72,7 +109,52 @@ jobs:
         dataOutputOverrides:
           - specName: commitResult
             lifetime: workflow
-        dependsOn: []
+        dependsOn:
+          - step: check-message
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: read-commit
+        description: Read back the commit that was actually made
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: log
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            maxCount: 1
+            format: "%an <%ae>%n%B"
+        dataOutputOverrides:
+          - specName: logResult
+            lifetime: workflow
+        dependsOn:
+          - step: commit
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: verify-commit
+        description: The real commit has the expected subject, no body or trailers, and the expected author
+        task:
+          type: model_method
+          modelType: "@jeremy/mere/policy"
+          modelName: ${{ "mere-policy-" + run.id }}
+          methodName: checkCommit
+          inputs:
+            rawCommit: >-
+              ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.raw }}
+            expectedSubject: ${{ inputs.commitMessage.split("\n")[0] }}
+            expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            maxSubjectLength: ${{ inputs.subjectMaxLength }}
+            subjectPattern: ${{ inputs.subjectPattern }}
+            allowBody: ${{ inputs.allowBody }}
+            branchPattern: ${{ inputs.branchPattern }}
+        dependsOn:
+          - step: read-commit
+            condition:
+              type: succeeded
         weight: 0
         allowFailure: false
       - name: push
@@ -89,7 +171,7 @@ jobs:
             setUpstream: true
             force: false
         dependsOn:
-          - step: commit
+          - step: verify-commit
             condition:
               type: succeeded
         weight: 0
