@@ -9,7 +9,11 @@ import {
   RateLimited,
 } from "./_lib/upstream.ts";
 import { runCommand } from "./_lib/runner.ts";
-import { bumpKind } from "./_lib/versions.ts";
+import {
+  bumpKind,
+  compareVersions,
+  normalizePatchSuffix,
+} from "./_lib/versions.ts";
 
 const GlobalArgs = z.object({
   githubToken: z.string().default("").meta({ sensitive: true }).describe(
@@ -33,6 +37,38 @@ const UpstreamSchema = z.object({
   checkedAt: z.string(),
   durationMs: z.number().nonnegative(),
   schemaVersion: z.literal(1),
+});
+
+const BumpSchema = z.object({
+  recipe: z.string(),
+  name: z.string(),
+  currentVersion: z.string(),
+  targetVersion: z.string(),
+  targetSource: z.enum(["latestInSeries", "explicit"]),
+  bumpKind: z.enum(["none", "patch", "minor", "major"]),
+  latestVersion: z.string().optional(),
+  latestInSeries: z.string().optional(),
+  hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
+  needsMigration: z.boolean(),
+  branch: z.string(),
+  sources: z.array(z.object({
+    url: z.string(),
+    candidateUrl: z.string(),
+    blake3: z.string(),
+    bytes: z.number().int().nonnegative(),
+  })),
+  commit: z.string(),
+  durationMs: z.number().nonnegative(),
+  schemaVersion: z.literal(1),
+});
+
+const PrepareBumpArgs = z.object({
+  recipeBinding: z.string().min(1).default("merelinux"),
+  recipe: z.string().regex(/^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i),
+  version: z.string().default("").describe(
+    "Empty targets the newest stable release in the recipe's current " +
+      "series; set it to move to another version, such as a new series.",
+  ),
 });
 
 const ArtifactSchema = z.object({
@@ -239,6 +275,7 @@ const ScanLatestArgs = z.object({
 });
 
 type UpstreamContext = {
+  repoDir?: string;
   signal: AbortSignal;
   globalArgs: z.infer<typeof GlobalArgs>;
   writeResource: (
@@ -367,6 +404,13 @@ export const behavior = {
   description: "Mere upstream source artifacts. Draft: fetchHash only.",
   globalArguments: GlobalArgs,
   resources: {
+    bump: {
+      description:
+        "What a bump of one recipe will do, with its new source hashes",
+      schema: BumpSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
     upstream: {
       description: "Latest upstream version of one recipe",
       schema: UpstreamSchema,
@@ -381,6 +425,134 @@ export const behavior = {
     },
   },
   methods: {
+    prepareBump: {
+      description:
+        "Decide and prepare a version bump for one recipe: look up upstream, " +
+        "pick the target (the newest in the current series unless `version` " +
+        "is given), and download and hash every source whose URL carries the " +
+        "version. Writes the plan; edits nothing.",
+      kind: "read",
+      arguments: PrepareBumpArgs,
+      execute: async (
+        args: z.infer<typeof PrepareBumpArgs>,
+        context: UpstreamContext & { repoDir: string },
+      ) => {
+        const started = performance.now();
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const records = await context.readModelData(
+          args.recipeBinding,
+          "recipe",
+        );
+        const found = records.find((r) => r.attributes.path === rel);
+        if (!found) {
+          throw new Error(
+            `no data for ${args.recipe} in "${args.recipeBinding}"; run its scan first`,
+          );
+        }
+        const a = found.attributes;
+        const input = recipeToInput(a);
+        const suffix = input.override?.patchSuffix;
+        const providers = await providersFor(context);
+        const lookup = await lookupLatest(input, providers);
+        let targetVersion = args.version;
+        let targetSource: "explicit" | "latestInSeries" = "explicit";
+        if (!targetVersion) {
+          targetSource = "latestInSeries";
+          targetVersion = lookup.latestInSeries ?? "";
+          if (
+            !targetVersion ||
+            !isNewer(input.currentVersion, targetVersion, suffix)
+          ) {
+            throw new Error(
+              `${input.name} has nothing newer in its ${input.currentVersion} series` +
+                (lookup.latestVersion &&
+                    lookup.latestVersion !== input.currentVersion
+                  ? `; the newest upstream is ${lookup.latestVersion}, pass version to move to it`
+                  : lookup.note
+                  ? ` (${lookup.note})`
+                  : ""),
+            );
+          }
+        } else if (
+          compareVersions(
+            normalizePatchSuffix(targetVersion, suffix),
+            normalizePatchSuffix(input.currentVersion, suffix),
+          ) <= 0
+        ) {
+          throw new Error(
+            `${input.name} is at ${input.currentVersion}; ${targetVersion} is not newer`,
+          );
+        }
+        const raw = (a.sources as {
+          url: string;
+          isLocal: boolean;
+          interpolatesVersion: boolean;
+        }[]).filter((x) => !x.isLocal && x.interpolatesVersion);
+        const sources = [];
+        for (const source of raw) {
+          context.signal.throwIfAborted();
+          const candidate = source.url
+            .replaceAll("${recipe.version}", targetVersion)
+            .replaceAll("${recipe.name}", input.name)
+            .replaceAll(
+              "${recipe.url}",
+              String(a.url ?? "").replace(/\/+$/, ""),
+            );
+          if (candidate.includes("${")) {
+            throw new Error(
+              `source "${source.url}" uses a variable prepareBump cannot resolve`,
+            );
+          }
+          const artifact = await downloadArtifact(
+            candidate,
+            join(context.repoDir, ".swamp", "mere", "downloads"),
+            AbortSignal.any([context.signal, AbortSignal.timeout(600_000)]),
+          );
+          sources.push({
+            url: source.url,
+            candidateUrl: candidate,
+            blake3: artifact.blake3,
+            bytes: artifact.bytes,
+          });
+        }
+        const kind = bumpKind(input.currentVersion, targetVersion, suffix);
+        const hardcoded = a.hardcodedVersion as {
+          exact: boolean;
+          series: boolean;
+        };
+        const handle = await context.writeResource(
+          "bump",
+          `bump-${input.name}`,
+          {
+            recipe: args.recipe,
+            name: input.name,
+            currentVersion: input.currentVersion,
+            targetVersion,
+            targetSource,
+            bumpKind: kind,
+            ...(lookup.latestVersion
+              ? { latestVersion: lookup.latestVersion }
+              : {}),
+            ...(lookup.latestInSeries
+              ? { latestInSeries: lookup.latestInSeries }
+              : {}),
+            hardcodedVersion: hardcoded,
+            needsMigration: kind === "major" || kind === "minor" ||
+              targetSource === "explicit" || hardcoded.exact ||
+              hardcoded.series,
+            branch: `bump-${input.name}-${targetVersion}`.replace(
+              /[^A-Za-z0-9._-]/g,
+              "-",
+            ),
+            sources,
+            commit: String(a.commit ?? ""),
+            durationMs: performance.now() - started,
+            schemaVersion: 1,
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
     latest: {
       description:
         "Find the newest stable upstream version of one recipe: GitHub tags " +

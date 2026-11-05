@@ -2,6 +2,7 @@ import { z } from "npm:zod@4.1.12";
 import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./_lib/kdl.ts";
 import { setVersion } from "./_lib/edit.ts";
+import { findDependents, renderSummary } from "./_lib/bump.ts";
 import { runChecked, runCommand } from "./_lib/runner.ts";
 
 const GlobalArgs = z.object({
@@ -145,6 +146,43 @@ const RecipeCheckoutArgs = z.object({
 const BuildArgs = RecipeCheckoutArgs.extend({
   noCache: z.boolean().default(true).describe("As CI does."),
   timeoutMinutes: z.number().int().min(1).max(240).default(60),
+});
+
+const CleanupSchema = z.object({
+  path: z.string(),
+  branch: z.string(),
+  existed: z.boolean(),
+  removed: z.boolean(),
+  branchDeleted: z.boolean(),
+  schemaVersion: z.literal(1),
+});
+
+const WorkspaceSchema = z.object({
+  key: z.string(),
+  checkoutPath: z.string(),
+  worktreeRoot: z.string(),
+  worktreePath: z.string(),
+  repoUrl: z.string(),
+  ref: z.string(),
+  schemaVersion: z.literal(1),
+});
+
+const SummarySchema = z.object({
+  recipe: z.string(),
+  name: z.string(),
+  title: z.string(),
+  commitMessage: z.string(),
+  body: z.string(),
+  labels: z.array(z.string()),
+  dependents: z.array(z.string()),
+  schemaVersion: z.literal(1),
+});
+
+const DependentsSchema = z.object({
+  name: z.string(),
+  dependents: z.array(z.string()),
+  commit: z.string(),
+  schemaVersion: z.literal(1),
 });
 
 const ScanSchema = z.object({
@@ -393,6 +431,31 @@ export const behavior = {
       lifetime: "infinite",
       garbageCollection: 20,
     },
+    workspace: {
+      description:
+        "Standard paths for one bump run: shared checkout and worktree",
+      schema: WorkspaceSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    cleanup: {
+      description: "Result of removing a stale bump worktree",
+      schema: CleanupSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    summary: {
+      description: "Title, commit message, PR body and labels for a change",
+      schema: SummarySchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    dependents: {
+      description: "Recipes that depend on one recipe",
+      schema: DependentsSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
     validation: {
       description: "Result of `mere dev validate` on one recipe",
       schema: ValidationSchema,
@@ -423,6 +486,204 @@ export const behavior = {
     },
   },
   methods: {
+    workspace: {
+      description:
+        "Compute the standard paths for one piece of work: the shared " +
+        "checkout and a worktree named by `key` (the branch) under the " +
+        "repo's .swamp/mere/worktrees. Touches nothing.",
+      kind: "read",
+      arguments: z.object({
+        key: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/),
+      }),
+      execute: async (args: { key: string }, context: Context) => {
+        const globals = GlobalArgs.parse(context.globalArgs);
+        const worktreeRoot = join(
+          context.repoDir,
+          ".swamp",
+          "mere",
+          "worktrees",
+        );
+        const handle = await context.writeResource("workspace", "workspace", {
+          key: args.key,
+          checkoutPath: checkoutDir(context.repoDir, globals.checkoutPath),
+          worktreeRoot,
+          worktreePath: join(worktreeRoot, args.key),
+          repoUrl: globals.repoUrl,
+          ref: globals.ref,
+          schemaVersion: 1,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+    cleanWorktree: {
+      description:
+        "Remove a stale bump worktree and its local branch so a retry starts " +
+        "clean. Only touches a registered worktree of the shared checkout, " +
+        "inside the worktree root, on a branch named bump-*. Nothing already " +
+        "pushed is affected.",
+      kind: "action",
+      arguments: z.object({
+        key: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/),
+        branch: z.string().regex(/^bump-[A-Za-z0-9._-]+$/),
+      }),
+      execute: async (
+        args: { key: string; branch: string },
+        context: Context,
+      ) => {
+        const globals = GlobalArgs.parse(context.globalArgs);
+        const checkout = checkoutDir(context.repoDir, globals.checkoutPath);
+        const path = join(
+          context.repoDir,
+          ".swamp",
+          "mere",
+          "worktrees",
+          args.key,
+        );
+        const registered = (await runChecked(
+          "git",
+          ["-C", checkout, "worktree", "list", "--porcelain"],
+          { signal: context.signal, timeoutMs: 30_000 },
+        )).stdout.split("\n").some((l) => l === `worktree ${path}`);
+        let removed = false;
+        if (registered) {
+          await runChecked(
+            "git",
+            ["-C", checkout, "worktree", "remove", "--force", path],
+            { signal: context.signal, timeoutMs: 60_000 },
+          );
+          removed = true;
+        }
+        await runChecked("git", ["-C", checkout, "worktree", "prune"], {
+          signal: context.signal,
+          timeoutMs: 30_000,
+        });
+        const branchExists = (await runCommand(
+          "git",
+          [
+            "-C",
+            checkout,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            `refs/heads/${args.branch}`,
+          ],
+          { signal: context.signal, timeoutMs: 30_000 },
+        )).exitCode === 0;
+        if (branchExists) {
+          await runChecked(
+            "git",
+            ["-C", checkout, "branch", "-D", args.branch],
+            {
+              signal: context.signal,
+              timeoutMs: 30_000,
+            },
+          );
+        }
+        const handle = await context.writeResource("cleanup", "cleanup", {
+          path,
+          branch: args.branch,
+          existed: registered,
+          removed,
+          branchDeleted: branchExists,
+          schemaVersion: 1,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+    dependents: {
+      description:
+        "List the recipes whose `depends` name this recipe or its -dev " +
+        "package, from the latest scan data.",
+      kind: "read",
+      arguments: z.object({ name: z.string().min(1) }),
+      execute: async (args: { name: string }, context: Context) => {
+        const records = await context.readModelData(
+          context.definition.name,
+          "recipe",
+        );
+        if (records.length === 0) {
+          throw new Error("no recipe data; run scan first");
+        }
+        const recipes = records.map((r) =>
+          r.attributes as {
+            name: string;
+            depends: string[];
+            commit: string;
+          }
+        );
+        const handle = await context.writeResource(
+          "dependents",
+          `dependents-${args.name}`,
+          {
+            name: args.name,
+            dependents: findDependents(recipes, args.name),
+            commit: recipes[0].commit,
+            schemaVersion: 1,
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    summarize: {
+      description:
+        "Write the title, commit message, PR body and labels for a bump from " +
+        "recorded data only (the change, the build, the bump plan and the " +
+        "dependents); no model call.",
+      kind: "read",
+      arguments: z.object({
+        recipe: z.string().regex(
+          /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i,
+        ),
+        sourceBinding: z.string().min(1).default("merelinux-upstream"),
+        runId: z.string().min(1),
+      }),
+      execute: async (
+        args: { recipe: string; sourceBinding: string; runId: string },
+        context: Context,
+      ) => {
+        const name = args.recipe.split("/")[1];
+        const own = context.definition.name;
+        const one = async (binding: string, spec: string, instance: string) => {
+          const found = (await context.readModelData(binding, spec))
+            .find((r) => (r as unknown as { name?: string }).name === instance);
+          if (!found) {
+            throw new Error(
+              `no ${spec} "${instance}" in ${binding}; run its step first`,
+            );
+          }
+          return found.attributes as Record<string, unknown>;
+        };
+        const change = await one(own, "change", `change-${name}`);
+        const build = await one(own, "build", `build-${name}`);
+        const bump = await one(args.sourceBinding, "bump", `bump-${name}`);
+        if (!build.ok) throw new Error(`the build of ${name} did not succeed`);
+        const recipes = (await context.readModelData(own, "recipe")).map((r) =>
+          r.attributes as { name: string; depends: string[] }
+        );
+        const dependents = findDependents(recipes, name);
+        const summary = renderSummary({
+          name,
+          recipe: args.recipe,
+          runId: args.runId,
+          change: change as never,
+          bump: bump as never,
+          build: build as never,
+          dependents,
+        });
+        const handle = await context.writeResource(
+          "summary",
+          `summary-${name}`,
+          {
+            recipe: args.recipe,
+            name,
+            ...summary,
+            dependents,
+            schemaVersion: 1,
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
     validate: {
       description:
         "Run `mere dev validate` on a recipe in a worktree: mere is the " +

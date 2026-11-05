@@ -13,6 +13,8 @@ reports:
   - reports/upstream_drift.ts
 workflows:
   - workflows/recipe-scan.yaml
+  - workflows/recipe-bump.yaml
+  - workflows/deliver-change.yaml
 dependencies:
   - "@swamp/git"
 additionalFiles:
