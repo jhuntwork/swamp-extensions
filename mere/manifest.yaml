@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@jeremy/mere"
-version: "2026.11.04.9"
-description: "Mere domain behaviors: source artifacts, a pinned toolchain, and source-tree validation."
+version: "2026.11.05.16"
+description: "Mere domain behaviors: source artifacts, a pinned toolchain, source-tree validation, and reproducible rescue-image assembly."
 license: MIT
 repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
@@ -12,6 +12,7 @@ behaviors:
   - recipe.ts
   - policy.ts
   - tree.ts
+  - rescue_image.ts
 reports:
   - upstream_drift.ts
   - build_summary.ts
@@ -32,3 +33,4 @@ platforms:
 labels:
   - mere
   - recipe
+  - rescue-image
