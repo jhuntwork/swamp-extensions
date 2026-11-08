@@ -1,9 +1,18 @@
-# Mere domain behaviors (phase 2)
+# Mere domain behaviors (phase 3)
 
-This is the first implementation slice of the design in `jhuntwork/mere-ops`.
-The existing `mere-dev`, `mere-shell`, and `mere-pm-dev` packages remain active.
+This package carries the deterministic Mere behaviors described by the Mere
+operations design. The current phase adds a toolchain-backed isolated package
+profile; recipe smoke-install wiring and remote placement follow once the
+profile's package import path is available in the workflow.
 
 Implemented:
+
+- `@jeremy/mere/profile`: `run` writes a temporary KDL package profile, invokes
+  the provisioned `@jeremy/mere/toolchain` binary with exact argv, and records
+  bounded output, exit status, package names, root, and Mere version. Package
+  names are quoted as KDL strings, command arguments never pass through a shell,
+  and the profile file is removed after the run. The isolated store is never
+  shared with the host.
 
 - `@jeremy/mere/source.fetchHash`: stream an HTTPS source to a temporary file,
   compute BLAKE3, atomically publish the downloaded file under its digest, and
@@ -11,6 +20,7 @@ Implemented:
   HTTPS redirects are followed by hand (at most 5, every hop must be HTTPS). A
   per-URL cache is reused only after its bytes are re-hashed and match; a
   corrupted or missing cache entry is downloaded again.
+
 - `_lib/runner.ts`: direct argv subprocess execution with cancellation and a
   timeout, concurrent pipe draining, bounded tails, total byte counts, exit
   code, and elapsed time. `runCommand` returns nonzero exit codes so a method
@@ -120,16 +130,8 @@ checks.
 
 ## Remaining follow-up
 
-- Keep the post-merge CI workflow available for manual exact-commit runs;
-  webhook ingress remains dormant until an endpoint is chosen.
-- Complete persistent `swamp serve` deployment and restart behavior.
-- Preserve active per-run worktrees across methods; do not reset edits before
-  validation/build.
-
-- The current cross-behavior API documents `runModel` as unavailable on remote
-  workers. Provisioning through nested behavior calls cannot simply move to a
-  worker unchanged. See Swamp's extension behavior API, Cross-Behavior Access.
-- Preflight checks cannot provision other behaviors; provisioning belongs in
-  method execution or an earlier workflow step.
-- Add `importOutputs`, signing-key handling, CI observation, and serve
-  deployment in the next phase.
+- Add `recipe.importOutputs` and the smoke-install step that imports the current
+  build's archives before invoking `@jeremy/mere/profile`.
+- Place architecture-specific build steps on enrolled workers after the
+  checkout/worktree transfer contract is settled; no worker host is assumed by
+  this package.
