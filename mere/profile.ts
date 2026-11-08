@@ -175,6 +175,8 @@ export const behavior = {
             suffix: ".kdl",
           });
           await Deno.writeTextFile(profilePath, renderProfile(args.packages));
+          const home = join(tool.root, "home");
+          await Deno.mkdir(home, { recursive: true });
           const result = await runCommand(
             tool.binaryPath,
             profileArgv(tool.root, profilePath, args.argv),
@@ -183,6 +185,7 @@ export const behavior = {
               cwd: args.workdir,
               timeoutMs: 30 * 60 * 1000,
               maxOutputBytes: 1024 * 1024,
+              env: { HOME: home },
             },
           );
           const data = {
