@@ -76,6 +76,7 @@ function markdown(records: BuildRecord[]): string {
   return lines.join("\n");
 }
 
+/** Workflow report summarizing recipe build outcomes and produced packages. */
 export const report = {
   name: "@jeremy/mere/build-summary",
   description:

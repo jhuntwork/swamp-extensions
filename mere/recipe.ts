@@ -2,7 +2,10 @@ import { z } from "npm:zod@4.1.12";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./models/_lib/kdl.ts";
-import { setVersion } from "./models/_lib/edit.ts";
+import {
+  bumpRelease as editBumpRelease,
+  setVersion,
+} from "./models/_lib/edit.ts";
 import { findDependents, renderSummary } from "./models/_lib/bump.ts";
 import { runChecked, runCommand } from "./models/_lib/runner.ts";
 
@@ -151,6 +154,8 @@ const BuildArgs = RecipeCheckoutArgs.extend({
   timeoutMinutes: z.number().int().min(1).max(240).default(60),
 });
 
+const ReleaseBumpArgs = RecipeCheckoutArgs;
+
 const CleanupSchema = z.object({
   path: z.string(),
   branch: z.string(),
@@ -224,6 +229,7 @@ type Context = {
   >;
 };
 
+/** Resolve a recipe checkout path from the repo directory and optional override. */
 export function checkoutDir(repoDir: string, configured: string): string {
   return configured ||
     join(repoDir, ".swamp", "mere", "checkouts", "merelinux");
@@ -385,6 +391,7 @@ async function latestBuildLog(root: string, tuple: string, since: number) {
 
 const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
 
+/** Build the stable data instance name for a parsed recipe. */
 export function recipeInstanceName(category: string, name: string): string {
   return `recipe-${category}-${name}`;
 }
@@ -415,6 +422,7 @@ async function listRecipes(root: string): Promise<string[]> {
   return found.sort();
 }
 
+/** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
   version: "2026.11.04.1",
@@ -858,6 +866,39 @@ export const behavior = {
           hashes,
           allowHardcodedVersion: args.allowHardcodedVersion,
         });
+        const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+        await Deno.writeTextFile(temporary, edited.text);
+        await Deno.rename(temporary, file);
+        const name = args.recipe.split("/")[1];
+        const handle = await context.writeResource("change", `change-${name}`, {
+          recipe: args.recipe,
+          path: rel,
+          checkoutPath: args.checkoutPath,
+          baseCommit,
+          ...edited.change,
+          schemaVersion: 1,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+    bumpRelease: {
+      description:
+        "Increment a recipe's release number in a worktree without changing " +
+        "its version, sources or any other file content.",
+      kind: "action",
+      arguments: ReleaseBumpArgs,
+      execute: async (
+        args: z.infer<typeof ReleaseBumpArgs>,
+        context: Context,
+      ) => {
+        if (!args.checkoutPath.startsWith("/")) {
+          throw new Error("checkoutPath must be an absolute path");
+        }
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const file = join(args.checkoutPath, rel);
+        const text = await Deno.readTextFile(file);
+        const baseCommit = await headCommit(args.checkoutPath, context.signal);
+        const edited = editBumpRelease(text, rel);
         const temporary = `${file}.${crypto.randomUUID()}.tmp`;
         await Deno.writeTextFile(temporary, edited.text);
         await Deno.rename(temporary, file);

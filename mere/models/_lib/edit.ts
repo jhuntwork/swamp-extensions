@@ -56,6 +56,66 @@ function replaceInRange(
  * line and each affected source's blake3 line. Every other byte is preserved.
  * The result is re-parsed and checked against what was asked for.
  */
+export function bumpRelease(
+  text: string,
+  relPath: string,
+): { text: string; change: Change } {
+  const before = parseRecipe(text, relPath);
+  if (before.release >= Number.MAX_SAFE_INTEGER) {
+    throw new Error(
+      `${before.name} release is already at the maximum safe integer`,
+    );
+  }
+  const release = before.release + 1;
+  const lines = text.split("\n");
+  const recipeStart = lines.findIndex((l) => /^recipe\s*\{/.test(l));
+  if (recipeStart < 0) throw new Error("no recipe block");
+  const recipeEnd = blockEnd(lines, recipeStart);
+  replaceInRange(
+    lines,
+    recipeStart,
+    recipeEnd,
+    /^(\s*release\s+)\d+(.*)$/,
+    (m) => `${m[1]}${release}${m[2]}`,
+    "release",
+  );
+  const after = lines.join("\n");
+  const check = parseRecipe(after, relPath);
+  assertOnlyReleaseChange(before, check, release);
+  return {
+    text: after,
+    change: {
+      version: { before: before.version, after: before.version },
+      release: { before: before.release, after: release },
+      sources: [],
+      fileSha256Before: sha256(text),
+      fileSha256After: sha256(after),
+      hardcodedVersion: before.hardcodedVersion,
+    },
+  };
+}
+
+/** The release-only edit must not alter any other parsed recipe field. */
+function assertOnlyReleaseChange(
+  before: ParsedRecipe,
+  after: ParsedRecipe,
+  release: number,
+): void {
+  const expected = structuredClone(before) as ParsedRecipe;
+  expected.release = release;
+  const strip = (recipe: ParsedRecipe) => ({
+    ...recipe,
+    sha256OfFile: "",
+    sources: recipe.sources.map(({ resolvedUrl: _unused, ...rest }) => rest),
+  });
+  if (JSON.stringify(strip(expected)) !== JSON.stringify(strip(after))) {
+    throw new Error(
+      "the edited recipe differs from the original in more than release; " +
+        "refusing to write it",
+    );
+  }
+}
+
 export function setVersion(
   text: string,
   relPath: string,

@@ -7,6 +7,7 @@ import { z } from "npm:zod@4";
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MERE_BINARY_RELATIVE_PATH = "zig-out/bin/mere";
 
+/** Fixed validation operations supported by the Mere source-tree behavior. */
 export type Method =
   | "fmtCheck"
   | "build"

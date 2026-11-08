@@ -1321,6 +1321,7 @@ async function executeBuild(
   return { dataHandles: handles };
 }
 
+/** Behavior that builds and verifies a provenance-bound rescue image. */
 export const behavior = {
   type: "@jeremy/mere/rescue-image",
   version: "2026.11.05.16",

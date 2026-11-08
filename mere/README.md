@@ -47,6 +47,11 @@ Implemented:
   edited. Read it with
   `swamp report get @jeremy/mere/upstream-drift --workflow @jeremy/mere/recipe-scan --markdown`.
 
+- `@jeremy/mere/recipe-rebuild` increments one recipe's release number in an
+  isolated worktree, validates and rebuilds it with mere, then delegates scoped
+  delivery to `deliver-change`. It never changes the source version or source
+  hashes.
+
 - `@jeremy/mere/tree`: fixed-argv `fmtCheck`, `build`, `test`, `releaseBuild`,
   and `smoke` methods for an isolated Mere source tree. Every source path is
   realpath-checked under the repository's `.swamp/mere` directory, subprocess

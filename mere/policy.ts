@@ -35,6 +35,7 @@ const CommitCheckSchema = z.object({
   schemaVersion: z.literal(1),
 });
 
+/** Behavior that checks commit messages and branch names against policy rules. */
 export const behavior = {
   type: "@jeremy/mere/policy",
   version: "2026.11.05.1",
