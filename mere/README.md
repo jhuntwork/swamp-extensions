@@ -15,14 +15,14 @@ Implemented:
   shared with the host.
 
 - `@jeremy/mere/recipe.importOutputs`: imports all archives from the latest
-  build into an isolated local Mere repository. A base64 Ed25519 signing key is
-  accepted only through the sensitive `signingKey` global as base64-encoded Mere
-  `.key` bytes, materialized under the isolated root for the import, and removed
-  afterward. The method derives the public key, adds a `file:///mere` repository
-  block with the matching trusted fingerprint, and records the repository,
-  fingerprint, bounded output, and failure diagnostics. `recipe-bump` now
-  requires `smokePackages` and `smokeArgv`, imports the build, and runs that
-  exact argv through `@jeremy/mere/profile` before delivery.
+  build into an isolated local Mere repository. A base64-encoded Mere `.key` is
+  accepted only through the sensitive `signingKey` global, materialized under
+  the isolated root for the build/import, and removed afterward. The method
+  derives the public key, adds a `file:///mere` repository block with the
+  matching trusted fingerprint, and records the repository, fingerprint, bounded
+  output, and failure diagnostics. `recipe-bump` now requires `smokePackages`
+  and `smokeArgv`, imports the build, and runs that exact argv through
+  `@jeremy/mere/profile` before delivery.
 
 - `@jeremy/mere/source.fetchHash`: stream an HTTPS source to a temporary file,
   compute BLAKE3, atomically publish the downloaded file under its digest, and

@@ -30,7 +30,7 @@ const GlobalArgs = z.object({
   ),
   signingKey: z.string().default("").meta({ sensitive: true }).describe(
     "Optional base64 Mere .key signing key. The key is written only to " +
-      "the isolated Mere root for import and is removed afterward.",
+      "the isolated Mere root for build/import and is removed afterward.",
   ),
 });
 
@@ -461,7 +461,7 @@ async function configureLocalRepository(
   await Deno.writeTextFile(configPath, `${existing.trimEnd()}\n\n${block}\n`);
 }
 
-/** Materialize the development key and isolated trust files for Mere import. */
+/** Materialize the development key and isolated trust files for build/import. */
 async function prepareSigningKey(
   binary: string,
   root: string,
@@ -477,13 +477,15 @@ async function prepareSigningKey(
   }
   const key = decodeSigningKey(encoded);
   const home = join(root, "home");
-  const keyDir = join(root, "mere", "keys");
+  const keyDir = join(home, ".mere", "keys");
+  const publicDir = join(root, "mere", "keys");
   const keyPath = join(keyDir, "mere.key");
-  const publicPath = join(keyDir, "dev.pub");
+  const publicPath = join(publicDir, "dev.pub");
   let wroteKey = false;
   let complete = false;
   try {
     await Deno.mkdir(keyDir, { recursive: true, mode: 0o700 });
+    await Deno.mkdir(publicDir, { recursive: true, mode: 0o755 });
     await Deno.writeFile(keyPath, key, { create: true, mode: 0o600 });
     wroteKey = true;
     await Deno.chmod(keyPath, 0o600);
@@ -937,22 +939,38 @@ export const behavior = {
           if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
         const startedAt = Date.now();
-        const result = await runCommand(
+        const globals = GlobalArgs.parse(context.globalArgs);
+        const prepared = await prepareSigningKey(
           tool.binary,
-          [
-            "--root",
-            tool.root,
-            "dev",
-            "build",
-            ...(args.noCache ? ["--no-cache"] : []),
-            file,
-          ],
-          {
-            signal: context.signal,
-            timeoutMs: args.timeoutMinutes * 60_000,
-            maxOutputBytes: 65_536,
-          },
+          tool.root,
+          globals.signingKey,
+          "local",
+          context.signal,
         );
+        let result;
+        try {
+          result = await runCommand(
+            tool.binary,
+            [
+              "--root",
+              tool.root,
+              "dev",
+              "build",
+              ...(args.noCache ? ["--no-cache"] : []),
+              file,
+            ],
+            {
+              signal: context.signal,
+              timeoutMs: args.timeoutMinutes * 60_000,
+              maxOutputBytes: 65_536,
+              env: { HOME: prepared.home },
+            },
+          );
+        } finally {
+          await Deno.remove(prepared.keyPath).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+          });
+        }
         const tail =
           (result.stdout + (result.stderr ? "\n" + result.stderr : "")).trim();
         const outputs = result.exitCode === 0
