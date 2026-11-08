@@ -15,6 +15,7 @@ drivers: []
 datastores: []
 reports: []
 additionalFiles:
+  - README.md
   - github_tracker_test.ts
   - LICENSE.txt
 labels:

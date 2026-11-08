@@ -1,3 +1,9 @@
+/**
+ * GitHub Issues adapter for the Mere Stagecraft tracker contract.
+ *
+ * The adapter stores tracker configuration and relation state in Swamp data,
+ * and delegates GitHub API operations to the authenticated `gh` executable.
+ */
 import { z } from "npm:zod@4.6.7";
 
 const repoSchema = z.string().regex(/^[\w.-]+\/[\w.-]+$/);
@@ -622,6 +628,13 @@ async function operateOne(
   }
 }
 
+/**
+ * Stagecraft-compatible GitHub Issues tracker extension.
+ *
+ * Use `configure` to set a default repository, `preflight` to check access,
+ * `describe` to publish the tracker contract, and `operate` for idempotent
+ * issue and relation operations.
+ */
 export const extension = {
   type: "@webframp/github",
   resources: {
