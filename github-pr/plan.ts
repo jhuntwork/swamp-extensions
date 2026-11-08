@@ -1,6 +1,6 @@
 import { z } from "npm:zod@4.4.3";
 import { FetchLike, GhRunner, githubJson } from "./auth.ts";
-import { Packet, requirePacket } from "./packet.ts";
+import { Packet, requirePacketOrChange } from "./packet.ts";
 import { preflight, PreflightConfigSchema } from "./preflight.ts";
 
 export const PlanSchema = z.object({
@@ -45,12 +45,12 @@ async function sha256(text: string): Promise<string> {
 /** Build a read-only plan after binding a ready packet to its remote head and base branch. */
 export async function planPr(
   rawConfig: unknown,
-  rawPacket: unknown,
+  rawChange: unknown,
   fetchImpl: FetchLike = fetch,
   ghRunner?: GhRunner,
 ): Promise<Plan> {
   const config = PreflightConfigSchema.parse(rawConfig);
-  const packet: Packet = await requirePacket(rawPacket);
+  const packet: Packet = await requirePacketOrChange(rawChange);
   if (packet.targetRepository !== config.repository) {
     throw new Error("Packet targetRepository does not match bound repository");
   }

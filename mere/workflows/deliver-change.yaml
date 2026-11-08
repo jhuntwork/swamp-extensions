@@ -37,10 +37,6 @@ inputs:
       type: string
       default: merelinux-pr
       description: "@jeremy/github-pr behavior bound to the repository"
-    packetBinding:
-      type: string
-      default: mere-change-packets
-      description: "@jeremy/change-packet behavior"
     subjectMaxLength:
       type: integer
       default: 69
@@ -215,78 +211,35 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
-      - name: create-packet
-        task:
-          type: behavior
-          behavior: ${{ inputs.packetBinding }}
-          methodName: create
-          inputs:
-            targetRepository: ${{ inputs.repository }}
-            sourceRepository: ${{ inputs.repository }}
-            base:
-              ref: ${{ inputs.baseRef }}
-              sha: ${{ inputs.baseSha }}
-            head:
-              ref: ${{ inputs.branch }}
-              sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
-            changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
-            checks:
-              - name: ${{ inputs.checkName }}
-                required: true
-                outcome: passed
-                evidenceRef: ${{ "swamp://local/workflow/" + run.id }}
-                detail: ${{ inputs.checkDetail }}
-            submission:
-              title: ${{ inputs.title }}
-              body: ${{ inputs.body }}
-              draft: false
-        dataOutputOverrides:
-          - specName: packet
-            lifetime: workflow
-        dependsOn:
-          - step: assert-scoped
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
-      - name: verify-packet
-        task:
-          type: behavior
-          behavior: ${{ inputs.packetBinding }}
-          methodName: verify
-          inputs:
-            packet: >-
-              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-        dependsOn:
-          - step: create-packet
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
-      - name: assert-packet
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "' + inputs.packetBinding + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.valid == true &&
-            data.query('modelName == "' + inputs.packetBinding + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.readiness.ready == true
-          message: The change packet failed integrity or readiness verification.
-          severity: high
-        dependsOn:
-          - step: verify-packet
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
       - name: plan-pr
         task:
           type: behavior
           behavior: ${{ inputs.prBinding }}
           methodName: planPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: ${{ inputs.repository }}
+              sourceRepository: ${{ inputs.repository }}
+              base:
+                ref: ${{ inputs.baseRef }}
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+              changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
+              checks:
+                - name: ${{ inputs.checkName }}
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id }}
+                  detail: ${{ inputs.checkDetail }}
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: false
         dependsOn:
-          - step: assert-packet
+          - step: assert-scoped
             condition:
               type: succeeded
         weight: 0
@@ -297,8 +250,27 @@ jobs:
           behavior: ${{ inputs.prBinding }}
           methodName: applyPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: ${{ inputs.repository }}
+              sourceRepository: ${{ inputs.repository }}
+              base:
+                ref: ${{ inputs.baseRef }}
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+              changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
+              checks:
+                - name: ${{ inputs.checkName }}
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id }}
+                  detail: ${{ inputs.checkDetail }}
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: false
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:
@@ -313,8 +285,27 @@ jobs:
           behavior: ${{ inputs.prBinding }}
           methodName: verifyPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "' + inputs.packetBinding + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: ${{ inputs.repository }}
+              sourceRepository: ${{ inputs.repository }}
+              base:
+                ref: ${{ inputs.baseRef }}
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+              changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
+              checks:
+                - name: ${{ inputs.checkName }}
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id }}
+                  detail: ${{ inputs.checkDetail }}
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: false
             result: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:

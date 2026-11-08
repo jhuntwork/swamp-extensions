@@ -54,7 +54,7 @@ Deno.test({
         ]
       ) await git(seed, ...a);
 
-      for (const pkg of ["change-packet", "github-pr"]) {
+      for (const pkg of ["github-pr"]) {
         assertEquals(
           (await repo.swamp(["extension", "source", "add", join(ROOT, pkg)]))
             .code,
@@ -131,7 +131,6 @@ Deno.test({
         `repoUrl=file://${remote}`,
       );
       await create("@jeremy/mere/source", "merelinux-upstream");
-      await create("@jeremy/change-packet", "mere-change-packets");
       await create(
         "@jeremy/github-pr",
         "merelinux-pr",

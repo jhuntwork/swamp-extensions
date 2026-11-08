@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.19";
 import { createPacket } from "../change-packet/mod.ts";
-import { requirePacket } from "./packet.ts";
+import { requirePacket, requirePacketOrChange } from "./packet.ts";
 
 const input = {
   targetRepository: "github.com/example/project",
@@ -18,6 +18,13 @@ const input = {
   submission: { title: "test", body: "", draft: false },
 };
 
+Deno.test("adapter computes integrity and readiness for slim change facts", async () => {
+  const change = { ...input, schemaVersion: 1 as const };
+  const packet = await requirePacketOrChange(change);
+  assertEquals(packet.schemaVersion, 1);
+  assertEquals(packet.readiness, { ready: true, blockers: [] });
+  assertEquals(packet.submission.title, input.submission.title);
+});
 Deno.test("adapter accepts a genuine protocol-v1 packet and rejects tampering", async () => {
   const packet = await createPacket(input);
   await requirePacket(packet);

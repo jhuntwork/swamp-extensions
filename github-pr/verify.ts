@@ -1,6 +1,6 @@
 import { z } from "npm:zod@4.4.3";
 import { FetchLike, GhRunner, githubJson } from "./auth.ts";
-import { requirePacket } from "./packet.ts";
+import { requirePacketOrChange } from "./packet.ts";
 import { ApplyResultSchema } from "./apply.ts";
 import { PreflightConfigSchema } from "./preflight.ts";
 
@@ -14,13 +14,13 @@ export const VerificationSchema = z.object({
 /** Read back a pull request and prove it still matches the exact packet. */
 export async function verifyPr(
   rawConfig: unknown,
-  rawPacket: unknown,
+  rawChange: unknown,
   rawResult: unknown,
   fetchImpl: FetchLike = fetch,
   ghRunner?: GhRunner,
 ): Promise<z.infer<typeof VerificationSchema>> {
   const config = PreflightConfigSchema.parse(rawConfig);
-  const packet = await requirePacket(rawPacket);
+  const packet = await requirePacketOrChange(rawChange);
   const result = ApplyResultSchema.parse(rawResult);
   const pr = await githubJson(
     config,
