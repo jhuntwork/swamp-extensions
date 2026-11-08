@@ -61,8 +61,8 @@ Implemented:
   package outputs, durations, and failure phases.
 
 - `@jeremy/mere/mere-change`: source-tree validation followed by the shared
-  delivery workflow. The pre-PR approval is optional and defaults off; merge
-  remains manual.
+  delivery workflow. The pull request is the review surface; merge remains
+  manual.
 
 ## Parser conformance
 

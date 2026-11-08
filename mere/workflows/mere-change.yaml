@@ -4,8 +4,8 @@ name: "@jeremy/mere/mere-change"
 description: >-
   Validate and deliver one scoped change to the Mere package-manager source
   tree. The workflow never edits source: it runs formatting, build, tests, and
-  the built CLI smoke check, then delegates commit, push, approval, and pull
-  request creation to deliver-change. Merge remains manual.
+  the built CLI smoke check, then delegates commit, push, and pull request
+  creation to deliver-change. Merge remains manual.
 tags: {}
 inputs:
   properties:
@@ -56,10 +56,6 @@ inputs:
       type: string
       default: ""
       description: When set, the commit author must use this email.
-    requireApproval:
-      type: boolean
-      default: false
-      description: Stop for explicit approval before pushing and opening the PR.
     subjectMaxLength:
       type: integer
       default: 69
@@ -194,7 +190,6 @@ jobs:
             prBinding: ${{ inputs.prBinding }}
             packetBinding: ${{ inputs.packetBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
-            requireApproval: ${{ inputs.requireApproval }}
             subjectMaxLength: ${{ inputs.subjectMaxLength }}
             subjectPattern: ${{ inputs.subjectPattern }}
             branchPattern: ${{ inputs.branchPattern }}

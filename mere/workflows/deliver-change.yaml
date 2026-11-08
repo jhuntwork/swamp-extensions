@@ -5,8 +5,7 @@ description: >-
   Commit a worktree's change, check the commit against the commit standards,
   push its branch, check the pushed diff is only what was expected, build and
   verify a change packet, then plan, create and read back the pull request as
-  an ordinary PR. Optionally stops for a person's approval before anything is
-  pushed (requireApproval). Never merges: the merge is manual.
+  an ordinary PR. Never merges: the merge is manual.
 tags: {}
 inputs:
   properties:
@@ -61,13 +60,6 @@ inputs:
       type: string
       default: ""
       description: When set, the commit's author must have this email
-    requireApproval:
-      type: boolean
-      default: false
-      description: >-
-        Stop for a person's approval before the branch is pushed and the PR
-        opened. Off by default: the PR is the review surface and the merge is
-        manual.
     checkName:
       type: string
       default: recipe-validation
@@ -167,22 +159,6 @@ jobs:
         weight: 0
         allowFailure: false
     dependsOn: []
-    weight: 0
-  - name: gate
-    steps:
-      - name: approve-push
-        description: Optional gate before anything leaves this machine
-        guard: ${{ !inputs.requireApproval }}
-        task:
-          type: manual_approval
-          prompt: ${{ "Push " + inputs.branch + " to " + inputs.repository + " and open a pull request? " + inputs.title }}
-        dependsOn: []
-        weight: 0
-        allowFailure: false
-    dependsOn:
-      - job: prepare
-        condition:
-          type: succeeded
     weight: 0
   - name: publish
     steps:
@@ -348,8 +324,8 @@ jobs:
         weight: 0
         allowFailure: false
     dependsOn:
-      - job: gate
+      - job: prepare
         condition:
-          type: completed
+          type: succeeded
     weight: 0
 version: 1
