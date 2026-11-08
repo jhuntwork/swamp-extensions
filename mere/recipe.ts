@@ -28,6 +28,10 @@ const GlobalArgs = z.object({
       "false where runModel is unavailable (remote workers) and run an " +
       "ensure_checkout step first.",
   ),
+  signingKey: z.string().default("").meta({ sensitive: true }).describe(
+    "Optional base64 Mere .key signing key. The key is written only to " +
+      "the isolated Mere root for import and is removed afterward.",
+  ),
 });
 
 const SourceSchema = z.object({
@@ -140,6 +144,25 @@ const BuildSchema = z.object({
   })),
   logTail: z.string(),
   schemaVersion: z.literal(1),
+});
+
+const ImportArgs = z.object({
+  repository: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).default(
+    "local",
+  ).describe("Local development repository name under the isolated Mere root."),
+});
+
+const ImportResultSchema = z.object({
+  exitCode: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+  durationMs: z.number().nonnegative(),
+  mereVersion: z.string(),
+  mereRoot: z.string(),
+  repository: z.string(),
+  keyFingerprint: z.string(),
+  success: z.boolean(),
+  error: z.string().optional(),
 });
 
 const RecipeCheckoutArgs = z.object({
@@ -367,6 +390,139 @@ async function sha256OfFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+export function decodeSigningKey(value: string): Uint8Array {
+  const compact = value.replace(/\s+/g, "");
+  let decoded: string;
+  try {
+    decoded = atob(compact);
+  } catch {
+    throw new Error("signingKey must be base64-encoded Mere .key material");
+  }
+  const bytes = Uint8Array.from(
+    decoded,
+    (character) => character.charCodeAt(0),
+  );
+  if (
+    bytes.length !== 80 ||
+    new TextDecoder().decode(bytes.slice(0, 8)) !== "MEREKEY\0" ||
+    bytes[8] !== 1 || bytes[9] !== 2 || bytes[10] !== 1 || bytes[11] !== 0 ||
+    new DataView(bytes.buffer, bytes.byteOffset + 12, 4).getUint32(0, true) !==
+      64
+  ) {
+    throw new Error(
+      `signingKey must decode to an 80-byte Mere secret key, got ${bytes.length} bytes`,
+    );
+  }
+  return bytes;
+}
+
+function publicKeyFromSigningKey(secret: Uint8Array): Uint8Array {
+  const header = new Uint8Array([
+    0x4d,
+    0x45,
+    0x52,
+    0x45,
+    0x4b,
+    0x45,
+    0x59,
+    0x00,
+    0x01,
+    0x01,
+    0x01,
+    0x00,
+    0x20,
+    0x00,
+    0x00,
+    0x00,
+  ]);
+  return Uint8Array.from([...header, ...secret.slice(48)]);
+}
+
+async function configureLocalRepository(
+  root: string,
+  repository: string,
+  fingerprint: string,
+): Promise<void> {
+  const configPath = join(root, "mere", "config.kdl");
+  const existing = await Deno.readTextFile(configPath);
+  const block = `repo "${repository}" {
+    url "file:///mere/dev/repo/${repository}"
+    priority 200
+    trusted-fingerprints "${fingerprint}"
+}`;
+  if (existing.includes(`repo "${repository}"`)) {
+    if (!existing.includes(`trusted-fingerprints "${fingerprint}"`)) {
+      throw new Error(
+        `isolated Mere config already has repository ${repository} with a different signing key`,
+      );
+    }
+    return;
+  }
+  await Deno.writeTextFile(configPath, `${existing.trimEnd()}\n\n${block}\n`);
+}
+
+/** Materialize the development key and isolated trust files for Mere import. */
+async function prepareSigningKey(
+  binary: string,
+  root: string,
+  encoded: string,
+  repository: string,
+  signal: AbortSignal,
+): Promise<{ keyPath: string; home: string; fingerprint: string }> {
+  if (!encoded) {
+    throw new Error(
+      "recipe signingKey is empty; configure the vault-backed development key " +
+        "or run the explicit toolchain.generateDevKey procedure first",
+    );
+  }
+  const key = decodeSigningKey(encoded);
+  const home = join(root, "home");
+  const keyDir = join(root, "mere", "keys");
+  const keyPath = join(keyDir, "mere.key");
+  const publicPath = join(keyDir, "dev.pub");
+  let wroteKey = false;
+  let complete = false;
+  try {
+    await Deno.mkdir(keyDir, { recursive: true, mode: 0o700 });
+    await Deno.writeFile(keyPath, key, { create: true, mode: 0o600 });
+    wroteKey = true;
+    await Deno.chmod(keyPath, 0o600);
+    await Deno.writeFile(publicPath, publicKeyFromSigningKey(key), {
+      create: true,
+    });
+    await Deno.chmod(publicPath, 0o644);
+    const fingerprintResult = await runCommand(
+      binary,
+      ["dev", "key", "fingerprint", publicPath],
+      { signal, timeoutMs: 30_000, maxOutputBytes: 4_096 },
+    );
+    if (fingerprintResult.exitCode !== 0) {
+      throw new Error(
+        `mere dev key fingerprint failed: ${
+          (fingerprintResult.stderr || fingerprintResult.stdout).trim()
+        }`,
+      );
+    }
+    const fingerprint = fingerprintResult.stdout.match(/[0-9a-f]{64}/i)?.[0]
+      ?.toLowerCase();
+    if (!fingerprint) {
+      throw new Error("mere returned no development key fingerprint");
+    }
+    await configureLocalRepository(root, repository, fingerprint);
+    await Deno.mkdir(join(root, "mere", "dev", "repo", repository), {
+      recursive: true,
+    });
+    complete = true;
+    return { keyPath, home, fingerprint };
+  } finally {
+    if (wroteKey && !complete) {
+      await Deno.remove(keyPath).catch((error) => {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+      });
+    }
+  }
+}
+
 /** mere's workspace for the most recent build of this recipe tuple. */
 async function latestBuildLog(root: string, tuple: string, since: number) {
   const base = join(root, "mere", "dev", "build");
@@ -425,8 +581,16 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.04.1",
-  description: "Read merelinux recipes as structured data.",
+  version: "2026.11.08.4",
+  description: "Read, validate, build, and import merelinux recipes.",
+  upgrades: [{
+    toVersion: "2026.11.08.4",
+    description:
+      "Add isolated development signing-key handling and importOutputs for smoke installation.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }],
   globalArguments: GlobalArgs,
   resources: {
     recipe: {
@@ -475,6 +639,13 @@ export const behavior = {
     build: {
       description: "Result of `mere dev build` on one recipe, with its outputs",
       schema: BuildSchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    import: {
+      description:
+        "Result of importing built package outputs into a local repository",
+      schema: ImportResultSchema,
       lifetime: "infinite",
       garbageCollection: 20,
     },
@@ -912,6 +1083,97 @@ export const behavior = {
           schemaVersion: 1,
         });
         return { dataHandles: [handle] };
+      },
+    },
+    importOutputs: {
+      description:
+        "Import the latest build outputs into a named isolated Mere development " +
+        "repository. The signing key is materialized only for this call; " +
+        "the repository's public trust metadata remains inside the isolated root.",
+      kind: "action",
+      arguments: ImportArgs,
+      execute: async (
+        args: z.infer<typeof ImportArgs>,
+        context: Context,
+      ) => {
+        const started = performance.now();
+        const globals = GlobalArgs.parse(context.globalArgs);
+        let tool: { binary: string; root: string; version: string } | undefined;
+        let prepared:
+          | { keyPath: string; home: string; fingerprint: string }
+          | undefined;
+        let recorded = false;
+        try {
+          tool = await toolchainOf(context);
+          prepared = await prepareSigningKey(
+            tool.binary,
+            tool.root,
+            globals.signingKey,
+            args.repository,
+            context.signal,
+          );
+          const result = await runCommand(
+            tool.binary,
+            [
+              "--root",
+              tool.root,
+              "dev",
+              "import",
+              args.repository,
+              "--key",
+              prepared.keyPath,
+            ],
+            {
+              signal: context.signal,
+              timeoutMs: 30 * 60 * 1000,
+              maxOutputBytes: 64 * 1024,
+              env: { HOME: prepared.home },
+            },
+          );
+          const data = {
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            durationMs: performance.now() - started,
+            mereVersion: tool.version,
+            mereRoot: tool.root,
+            repository: args.repository,
+            keyFingerprint: prepared.fingerprint,
+            success: result.exitCode === 0,
+          };
+          const handle = await context.writeResource("import", "current", data);
+          recorded = true;
+          if (result.exitCode !== 0) {
+            throw new Error(
+              `mere dev import failed for ${args.repository}: ${
+                (result.stderr || result.stdout).split("\n")[0] ?? ""
+              }`,
+            );
+          }
+          return { dataHandles: [handle] };
+        } catch (error) {
+          if (!recorded) {
+            await context.writeResource("import", "current", {
+              exitCode: -1,
+              stdout: "",
+              stderr: "",
+              durationMs: performance.now() - started,
+              mereVersion: tool?.version ?? "",
+              mereRoot: tool?.root ?? "",
+              repository: args.repository,
+              keyFingerprint: prepared?.fingerprint ?? "",
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          throw error instanceof Error ? error : new Error(String(error));
+        } finally {
+          if (prepared?.keyPath) {
+            await Deno.remove(prepared.keyPath).catch((error) => {
+              if (!(error instanceof Deno.errors.NotFound)) throw error;
+            });
+          }
+        }
       },
     },
     read: {

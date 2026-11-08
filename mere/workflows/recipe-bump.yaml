@@ -4,7 +4,9 @@ name: "@jeremy/mere/recipe-bump"
 description: >-
   Bump one merelinux recipe: decide the target version, download and hash its
   sources, edit the recipe in a per-run worktree, validate and build it with
-  mere, write the PR text from data, then hand the change to deliver-change.
+  mere, import the outputs into an isolated local repository, run an exact
+  argv smoke test through `@jeremy/mere/profile`, write the PR text from data,
+  then hand the change to deliver-change.
   No model calls. Defaults to the newest stable release in the recipe's
   current series; pass version to move to another.
 tags: {}
@@ -37,8 +39,29 @@ inputs:
       type: boolean
       default: false
       description: Proceed for a recipe whose scripts spell out its version
+    repository:
+      type: string
+      default: local
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      description: Isolated Mere development repository receiving build outputs
+    smokePackages:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+      description: Exact package names installed for the smoke test
+    smokeArgv:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        minLength: 1
+      description: Exact argv run in the installed profile; no shell is used
   required:
     - recipe
+    - smokePackages
+    - smokeArgv
 jobs:
   - name: prepare
     steps:
@@ -163,6 +186,37 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
+      - name: import-outputs
+        description: Import the current build outputs into the isolated local repository
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: importOutputs
+          inputs:
+            repository: ${{ inputs.repository }}
+        dependsOn:
+          - step: build
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: smoke-installed-packages
+        description: Run exact argv in the imported package profile
+        task:
+          type: model_method
+          modelType: "@jeremy/mere/profile"
+          modelName: ${{ "mere-profile-" + run.id }}
+          methodName: run
+          inputs:
+            packages: ${{ inputs.smokePackages }}
+            argv: ${{ inputs.smokeArgv }}
+            workdir: /
+        dependsOn:
+          - step: import-outputs
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
       - name: summarize
         description: Write the PR text from recorded data
         task:
@@ -174,7 +228,7 @@ jobs:
             sourceBinding: ${{ inputs.sourceBinding }}
             runId: ${{ run.id }}
         dependsOn:
-          - step: build
+          - step: smoke-installed-packages
             condition:
               type: succeeded
         weight: 0

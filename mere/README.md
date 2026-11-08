@@ -1,9 +1,9 @@
 # Mere domain behaviors (phase 3)
 
 This package carries the deterministic Mere behaviors described by the Mere
-operations design. The current phase adds a toolchain-backed isolated package
-profile; recipe smoke-install wiring and remote placement follow once the
-profile's package import path is available in the workflow.
+operations design. The current phase adds the toolchain-backed isolated package
+profile and the build-output import/smoke-test path; remote worker placement
+follows once the worker checkout contract is settled.
 
 Implemented:
 
@@ -13,6 +13,16 @@ Implemented:
   names are quoted as KDL strings, command arguments never pass through a shell,
   and the profile file is removed after the run. The isolated store is never
   shared with the host.
+
+- `@jeremy/mere/recipe.importOutputs`: imports all archives from the latest
+  build into an isolated local Mere repository. A base64 Ed25519 signing key is
+  accepted only through the sensitive `signingKey` global as base64-encoded Mere
+  `.key` bytes, materialized under the isolated root for the import, and removed
+  afterward. The method derives the public key, adds a `file:///mere` repository
+  block with the matching trusted fingerprint, and records the repository,
+  fingerprint, bounded output, and failure diagnostics. `recipe-bump` now
+  requires `smokePackages` and `smokeArgv`, imports the build, and runs that
+  exact argv through `@jeremy/mere/profile` before delivery.
 
 - `@jeremy/mere/source.fetchHash`: stream an HTTPS source to a temporary file,
   compute BLAKE3, atomically publish the downloaded file under its digest, and
@@ -130,8 +140,9 @@ checks.
 
 ## Remaining follow-up
 
-- Add `recipe.importOutputs` and the smoke-install step that imports the current
-  build's archives before invoking `@jeremy/mere/profile`.
+- Configure the recipe binding's sensitive `signingKey` from the default vault
+  before running `recipe-bump`; store base64 of the generated Mere
+  `~/.mere/keys/mere.key` bytes. The workflow deliberately fails without it.
 - Place architecture-specific build steps on enrolled workers after the
   checkout/worktree transfer contract is settled; no worker host is assumed by
   this package.
