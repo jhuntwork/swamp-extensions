@@ -1,0 +1,25 @@
+manifestVersion: 1
+name: "@jeremy/mere-stagecraft"
+version: "2026.11.07.1"
+description: >-
+  GitHub Issues tracker adapter for the Mere Stagecraft issue lifecycle.
+repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
+paths:
+  base: manifest
+models:
+  - github_tracker.ts
+workflows: []
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - github_tracker_test.ts
+  - LICENSE.txt
+labels:
+  - mere
+  - stagecraft
+  - github
+  - issue-tracker
+dependencies: []
