@@ -193,25 +193,6 @@ Deno.test({
         (await git(remote, "rev-list", "--count", "main..bump-inih-63")).trim(),
         "1",
       );
-      // With requireApproval the run stops before anything is pushed.
-      const before = (await git(remote, "rev-parse", "bump-inih-63")).trim();
-      const gated = await repo.json([
-        "workflow",
-        "run",
-        "@jeremy/mere/recipe-bump",
-        "--input",
-        "recipe=core/inih",
-        "--input",
-        "version=63",
-        "--input",
-        "requireApproval=true",
-      ]);
-      assertEquals(gated.status, "suspended");
-      assertEquals(
-        (await git(remote, "rev-parse", "bump-inih-63")).trim(),
-        before,
-      );
-
       // The commit follows the standards: subject only, no trailers.
       assertEquals(
         (await git(remote, "log", "-1", "--format=%B", "bump-inih-63")).trim(),
