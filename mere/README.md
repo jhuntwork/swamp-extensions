@@ -65,6 +65,11 @@ Implemented:
 - `@jeremy/mere/build-summary`: workflow report for recipe build outcomes,
   package outputs, durations, and failure phases.
 
+- `@jeremy/mere/model-cost`: workflow report for `@swamp/agent-runner` `run` and
+  `review` steps. It preserves missing provider usage as "not reported", records
+  model, provider, effort, outcome, tokens, cost and durations, and aggregates
+  totals by model within the workflow.
+
 - `@jeremy/mere/mere-change`: source-tree validation followed by the shared
   delivery workflow. The pull request is the review surface; merge remains
   manual. `deliver-change` computes its GitHub change digest and readiness
@@ -115,7 +120,8 @@ checks.
 
 ## Remaining follow-up
 
-- Record post-merge CI runs from the Merelinux push webhook in the ops repo.
+- Keep the post-merge CI workflow available for manual exact-commit runs;
+  webhook ingress remains dormant until an endpoint is chosen.
 - Complete persistent `swamp serve` deployment and restart behavior.
 - Preserve active per-run worktrees across methods; do not reset edits before
   validation/build.
