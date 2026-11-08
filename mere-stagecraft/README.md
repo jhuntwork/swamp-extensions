@@ -1,8 +1,8 @@
 # `@jeremy/mere-stagecraft`
 
 `@jeremy/mere-stagecraft` adapts GitHub Issues to the Mere Stagecraft tracker
-contract. It supplies idempotent issue fetch, create, comment, status, type,
-and relation operations, plus a read-only preflight check. The adapter is an
+contract. It supplies idempotent issue fetch, create, comment, status, type, and
+relation operations, plus a read-only preflight check. The adapter is an
 extension of the `@webframp/github` behavior type.
 
 The adapter invokes the authenticated `gh` executable for GitHub API access.
@@ -41,7 +41,7 @@ instance. In the Mere operations repository, the checked-in binding is
 `models/@swamp/stagecraft/publisher/github-publisher.yaml`:
 
 ```yaml
-type: '@swamp/stagecraft/publisher'
+type: "@swamp/stagecraft/publisher"
 typeVersion: 2026.10.12.1
 id: dc91ca51-eaeb-4e8f-b004-add3b1cad74e
 name: github-publisher
@@ -56,10 +56,10 @@ methods: {}
 
 Run `describe` on the tracker before validating the publisher. The publisher's
 `tracker` global argument names `merelinux-github`, and `statuses` maps each
-Stagecraft status key to the GitHub status label returned by this adapter.
-Point a Stagecraft factory at `github-publisher`, then validate the factory
-before running its workflows. Keep GitHub credentials in `gh`'s credential
-store rather than in the behavior definition or this README.
+Stagecraft status key to the GitHub status label returned by this adapter. Point
+a Stagecraft factory at `github-publisher`, then validate the factory before
+running its workflows. Keep GitHub credentials in `gh`'s credential store rather
+than in the behavior definition or this README.
 
 ## Development
 
@@ -74,5 +74,5 @@ deno test --allow-read --allow-write --allow-run --allow-env \
 ```
 
 The package is source-controlled here and is not published by this repository
-change. A fresh tracker conformance run against a running Mere operations
-server remains an integration check outside the package's unit tests.
+change. A fresh tracker conformance run against a running Mere operations server
+remains an integration check outside the package's unit tests.
