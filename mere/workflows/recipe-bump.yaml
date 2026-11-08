@@ -26,9 +26,6 @@ inputs:
     prBinding:
       type: string
       default: merelinux-pr
-    packetBinding:
-      type: string
-      default: mere-change-packets
     noCache:
       type: boolean
       default: true
@@ -202,7 +199,6 @@ jobs:
             title: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.title }}
             body: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.body }}
             prBinding: ${{ inputs.prBinding }}
-            packetBinding: ${{ inputs.packetBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
         dependsOn: []
         weight: 0

@@ -1,11 +1,13 @@
 manifestVersion: 1
 name: "@jeremy/github-pr"
-version: "2026.11.03.2"
+version: "2026.11.08.1"
 description: >
   Narrow GitHub.com same-repository pull-request boundary: preflight, plan,
-  apply, and read-back verification. Draft is requested per packet rather than
-  fixed by the adapter. No merge, release, repository administration, PR update,
-  or arbitrary endpoint capability.
+  apply, and read-back verification. Draft is requested per change rather than
+  fixed by the adapter. It accepts slim change facts and computes the integrity
+  digest and readiness internally; legacy packets remain readable during
+  migration. No merge, release, repository administration, PR update, or
+  arbitrary endpoint capability.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:

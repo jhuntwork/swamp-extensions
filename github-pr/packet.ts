@@ -21,12 +21,12 @@ const RelativePathSchema = z.string()
     "must be a normalized, repository-relative path",
   );
 
-const RevisionSchema = z.object({
+export const RevisionSchema = z.object({
   ref: GitRefSchema.describe("Named Git ref, such as main or feature/example"),
   sha: GitShaSchema.describe("Full commit object ID resolved for the ref"),
 });
 
-const CheckSchema = z.object({
+export const CheckSchema = z.object({
   name: z.string().min(1).max(256).describe(
     "Stable name of the validation check",
   ),
@@ -44,10 +44,55 @@ const CheckSchema = z.object({
   }
 });
 
-const SubmissionSchema = z.object({
+export const SubmissionSchema = z.object({
   title: z.string().min(1).max(256),
   body: z.string().max(65535),
   draft: z.boolean(),
+});
+
+/** The delivery facts the GitHub adapter needs before it computes its receipt. */
+export const ChangeSchema = z.object({
+  schemaVersion: z.literal(1),
+  targetRepository: z.string().min(1).max(2048),
+  sourceRepository: z.string().min(1).max(2048),
+  base: RevisionSchema,
+  head: RevisionSchema,
+  changedPaths: z.array(RelativePathSchema).max(10000),
+  checks: z.array(CheckSchema).min(1).max(1000),
+  submission: SubmissionSchema,
+}).superRefine((change, context) => {
+  if (change.base.ref === change.head.ref) {
+    context.addIssue({
+      code: "custom",
+      path: ["head", "ref"],
+      message: "must differ from the base ref",
+    });
+  }
+  if (change.base.sha === change.head.sha) {
+    context.addIssue({
+      code: "custom",
+      path: ["head", "sha"],
+      message: "must differ from the base commit",
+    });
+  }
+  const names = new Set<string>();
+  for (const [index, check] of change.checks.entries()) {
+    if (names.has(check.name)) {
+      context.addIssue({
+        code: "custom",
+        path: ["checks", index, "name"],
+        message: "must be unique within a change",
+      });
+    }
+    names.add(check.name);
+  }
+  if (!change.checks.some((check) => check.required)) {
+    context.addIssue({
+      code: "custom",
+      path: ["checks"],
+      message: "must include at least one required check",
+    });
+  }
 });
 
 /** Materialized Change Packet Protocol v1 data accepted by the GitHub adapter. */
@@ -101,6 +146,7 @@ export const PacketSchema = z.object({
   }
 });
 
+export type Change = z.infer<typeof ChangeSchema>;
 export type Packet = z.infer<typeof PacketSchema>;
 
 function canonical(value: unknown): string {
@@ -167,4 +213,37 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
     throw new Error("Change packet is not ready for submission");
   }
   return packet;
+}
+
+/** Compute the integrity receipt internally so callers never need a packet behavior. */
+export async function materializeChange(raw: unknown): Promise<Packet> {
+  const change = ChangeSchema.parse(raw);
+  const payload = {
+    schemaVersion: change.schemaVersion,
+    targetRepository: change.targetRepository,
+    sourceRepository: change.sourceRepository,
+    base: change.base,
+    head: change.head,
+    changedPaths: change.changedPaths,
+    checks: change.checks,
+    submission: change.submission,
+  };
+  const readiness = readinessOf(change.checks);
+  if (!readiness.ready) throw new Error("Change is not ready for submission");
+  return PacketSchema.parse({
+    ...payload,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    payloadDigest: await digest(payload),
+    readiness,
+  });
+}
+
+/** Accept the v2 slim delivery input and the v1 packet during migration. */
+export async function requirePacketOrChange(raw: unknown): Promise<Packet> {
+  if (
+    raw !== null && typeof raw === "object" &&
+    "payloadDigest" in (raw as Record<string, unknown>)
+  ) return await requirePacket(raw);
+  return await materializeChange(raw);
 }

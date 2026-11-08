@@ -1,7 +1,7 @@
 import { z } from "npm:zod@4.4.3";
 import { FetchLike, GhRunner, GithubApiError, githubJson } from "./auth.ts";
 import { planPr, PlanSchema } from "./plan.ts";
-import { requirePacket } from "./packet.ts";
+import { requirePacketOrChange } from "./packet.ts";
 
 export const ApplyResultSchema = z.object({
   number: z.number().int().positive(),
@@ -24,12 +24,12 @@ async function sha256(text: string): Promise<string> {
 /** Apply an approved same-repository plan; never merges or updates a PR. */
 export async function applyPr(
   config: unknown,
-  rawPacket: unknown,
+  rawChange: unknown,
   rawPlan: unknown,
   fetchImpl: FetchLike = fetch,
   ghRunner?: GhRunner,
 ): Promise<z.infer<typeof ApplyResultSchema>> {
-  const packet = await requirePacket(rawPacket);
+  const packet = await requirePacketOrChange(rawChange);
   const approved = PlanSchema.parse(rawPlan);
   if (
     approved.packetId !== packet.id ||

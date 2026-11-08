@@ -1,7 +1,7 @@
 import { z } from "npm:zod@4.4.3";
 import { applyPr, ApplyResultSchema } from "./apply.ts";
 import { planPr, PlanSchema } from "./plan.ts";
-import { PacketSchema } from "./packet.ts";
+import { ChangeSchema, PacketSchema } from "./packet.ts";
 import {
   preflight,
   PreflightConfigSchema,
@@ -10,6 +10,19 @@ import {
 import { VerificationSchema, verifyPr } from "./verify.ts";
 
 const Globals = PreflightConfigSchema;
+const ChangeInputSchema = z.union([ChangeSchema, PacketSchema]);
+
+type ChangeInput = z.infer<typeof ChangeInputSchema>;
+
+function requireChangeInput(
+  change: ChangeInput | undefined,
+  packet: ChangeInput | undefined,
+): ChangeInput {
+  const value = change ?? packet;
+  if (!value) throw new Error("change is required");
+  return value;
+}
+
 type Context = {
   globalArgs: z.infer<typeof Globals>;
   writeResource: (
@@ -34,7 +47,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.03.2",
+  version: "2026.11.08.1",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -51,9 +64,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.03.2",
+    toVersion: "2026.11.08.1",
     description:
-      "Remove stale quality metadata while retaining the authenticated gh transport.",
+      "Accept slim change facts and compute integrity and readiness inside the adapter while retaining legacy packet input.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -104,16 +117,20 @@ export const model = {
       },
     },
     planPr: {
-      description: "Read-only plan for a ready same-repository packet",
-      arguments: z.object({ packet: PacketSchema }),
+      description:
+        "Read-only plan for a ready same-repository change; integrity and readiness are computed here",
+      arguments: z.object({
+        change: ChangeInputSchema.optional(),
+        packet: ChangeInputSchema.optional(),
+      }),
       execute: async (
-        { packet }: { packet: z.infer<typeof PacketSchema> },
+        { change, packet }: { change?: ChangeInput; packet?: ChangeInput },
         ctx: Context,
       ) => {
-        ctx.logger?.info("Planning GitHub pull request", {
-          packetId: packet.id,
-        });
-        const data = await planPr(ctx.globalArgs, packet);
+        const data = await planPr(
+          ctx.globalArgs,
+          requireChangeInput(change, packet),
+        );
         ctx.logger?.info("Planned GitHub pull request", {
           packetId: data.packetId,
           draft: data.draft,
@@ -128,50 +145,56 @@ export const model = {
     },
     applyPr: {
       description:
-        "Create or recognize a matching pull request from an approved plan; gate with workflow approval",
-      arguments: z.object({ packet: PacketSchema, plan: PlanSchema }),
+        "Create or recognize a matching pull request from an approved plan; integrity is recomputed here",
+      arguments: z.object({
+        change: ChangeInputSchema.optional(),
+        packet: ChangeInputSchema.optional(),
+        plan: PlanSchema,
+      }),
       execute: async (
-        { packet, plan }: {
-          packet: z.infer<typeof PacketSchema>;
+        { change, packet, plan }: {
+          change?: ChangeInput;
+          packet?: ChangeInput;
           plan: z.infer<typeof PlanSchema>;
         },
         ctx: Context,
       ) => {
-        ctx.logger?.info("Applying approved GitHub PR plan", {
-          packetId: packet.id,
-          draft: plan.draft,
-        });
-        const data = await applyPr(ctx.globalArgs, packet, plan);
+        const input = requireChangeInput(change, packet);
+        const data = await applyPr(ctx.globalArgs, input, plan);
         ctx.logger?.info("Applied GitHub PR plan", {
-          packetId: packet.id,
+          packetId: plan.packetId,
           number: data.number,
           created: data.created,
           draft: data.draft,
         });
         return {
           dataHandles: [
-            await ctx.writeResource("applied", `packet-${packet.id}`, data),
+            await ctx.writeResource("applied", `packet-${plan.packetId}`, data),
           ],
         };
       },
     },
     verifyPr: {
-      description: "Read back a pull request and prove it matches a packet",
-      arguments: z.object({ packet: PacketSchema, result: ApplyResultSchema }),
+      description: "Read back a pull request and prove it matches a change",
+      arguments: z.object({
+        change: ChangeInputSchema.optional(),
+        packet: ChangeInputSchema.optional(),
+        result: ApplyResultSchema,
+      }),
       execute: async (
-        { packet, result }: {
-          packet: z.infer<typeof PacketSchema>;
+        { change, packet, result }: {
+          change?: ChangeInput;
+          packet?: ChangeInput;
           result: z.infer<typeof ApplyResultSchema>;
         },
         ctx: Context,
       ) => {
-        ctx.logger?.info("Verifying GitHub PR read-back", {
-          packetId: packet.id,
-          number: result.number,
-        });
-        const data = await verifyPr(ctx.globalArgs, packet, result);
+        const data = await verifyPr(
+          ctx.globalArgs,
+          requireChangeInput(change, packet),
+          result,
+        );
         ctx.logger?.info("Verified GitHub PR read-back", {
-          packetId: packet.id,
           number: data.number,
           draft: data.draft,
         });
@@ -179,7 +202,7 @@ export const model = {
           dataHandles: [
             await ctx.writeResource(
               "verification",
-              `packet-${packet.id}`,
+              `pr-${result.number}`,
               data,
             ),
           ],

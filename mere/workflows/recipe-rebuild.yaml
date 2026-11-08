@@ -17,9 +17,6 @@ inputs:
     prBinding:
       type: string
       default: merelinux-pr
-    packetBinding:
-      type: string
-      default: mere-change-packets
     noCache:
       type: boolean
       default: true
@@ -157,7 +154,6 @@ jobs:
             body: >-
               ${{ "Rebuild " + inputs.recipe.split("/")[1] + " at release " + string(data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.release.after) + ". The recipe was validated and built with mere." }}
             prBinding: ${{ inputs.prBinding }}
-            packetBinding: ${{ inputs.packetBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
         dependsOn: []
         weight: 0

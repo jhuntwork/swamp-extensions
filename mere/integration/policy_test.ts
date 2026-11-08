@@ -7,7 +7,7 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 Deno.test("deliver-change refuses a commit that breaks the standards before it commits anything", async () => {
   const repo = await createRepo();
   try {
-    for (const pkg of ["change-packet", "github-pr"]) {
+    for (const pkg of ["github-pr"]) {
       assertEquals(
         (await repo.swamp(["extension", "source", "add", join(ROOT, pkg)]))
           .code,
@@ -16,7 +16,6 @@ Deno.test("deliver-change refuses a commit that breaks the standards before it c
     }
     for (
       const [type, name, args] of [
-        ["@jeremy/change-packet", "mere-change-packets", []],
         ["@jeremy/github-pr", "merelinux-pr", [
           "--global-arg",
           "repository=jhuntwork/merelinux",

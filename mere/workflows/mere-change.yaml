@@ -48,10 +48,6 @@ inputs:
       type: string
       default: mere-pr
       description: "@jeremy/github-pr behavior bound to the Mere repository."
-    packetBinding:
-      type: string
-      default: mere-change-packets
-      description: "@jeremy/change-packet behavior used for the delivery packet."
     expectedAuthorEmail:
       type: string
       default: ""
@@ -188,7 +184,6 @@ jobs:
             repository: ${{ inputs.repository }}
             baseRef: main
             prBinding: ${{ inputs.prBinding }}
-            packetBinding: ${{ inputs.packetBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
             subjectMaxLength: ${{ inputs.subjectMaxLength }}
             subjectPattern: ${{ inputs.subjectPattern }}

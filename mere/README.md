@@ -1,4 +1,4 @@
-# Mere domain behaviors (phase 1)
+# Mere domain behaviors (phase 2)
 
 This is the first implementation slice of the design in `jhuntwork/mere-ops`.
 The existing `mere-dev`, `mere-shell`, and `mere-pm-dev` packages remain active.
@@ -47,6 +47,11 @@ Implemented:
   edited. Read it with
   `swamp report get @jeremy/mere/upstream-drift --workflow @jeremy/mere/recipe-scan --markdown`.
 
+- `@jeremy/mere/ci`: observe GitHub Actions runs for an exact commit, wait until
+  a run completes, and dispatch the Merelinux build workflow. It uses the
+  authenticated `gh` CLI without copying a token into data or arguments; final
+  non-success conclusions are recorded before the method throws.
+
 - `@jeremy/mere/recipe-rebuild` increments one recipe's release number in an
   isolated worktree, validates and rebuilds it with mere, then delegates scoped
   delivery to `deliver-change`. It never changes the source version or source
@@ -62,7 +67,9 @@ Implemented:
 
 - `@jeremy/mere/mere-change`: source-tree validation followed by the shared
   delivery workflow. The pull request is the review surface; merge remains
-  manual.
+  manual. `deliver-change` computes its GitHub change digest and readiness
+  inside `@jeremy/github-pr`; the obsolete `@jeremy/change-packet` path is no
+  longer required.
 
 ## Parser conformance
 
@@ -102,13 +109,17 @@ swamp extension push manifest.yaml --dry-run --json
 
 The integration suite loads the extension on the real engine and runs methods
 through the swamp CLI. The `mere-change` workflow has also run against a real
-Mere checkout and delivered PR #88.
+Mere checkout and delivered PR #88. The CI behavior's parsing and cancellation
+boundaries have unit coverage; the GitHub Actions calls remain live-environment
+checks.
 
 ## Remaining follow-up
 
+- Record post-merge CI runs from the Merelinux push webhook in the ops repo.
+- Complete persistent `swamp serve` deployment and restart behavior.
 - Preserve active per-run worktrees across methods; do not reset edits before
   validation/build.
-- Observe PR creation and post-merge CI publication as separate milestones.
+
 - The current cross-behavior API documents `runModel` as unavailable on remote
   workers. Provisioning through nested behavior calls cannot simply move to a
   worker unchanged. See Swamp's extension behavior API, Cross-Behavior Access.
