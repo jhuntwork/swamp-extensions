@@ -461,6 +461,41 @@ async function configureLocalRepository(
   await Deno.writeTextFile(configPath, `${existing.trimEnd()}\n\n${block}\n`);
 }
 
+async function removeEmptyRepositoryConfig(
+  root: string,
+  repository: string,
+): Promise<void> {
+  const repositoryDir = join(root, "mere", "dev", "repo", repository);
+  let hasEntries = false;
+  try {
+    for await (const entry of Deno.readDir(repositoryDir)) {
+      if (entry.name !== ".keep") {
+        hasEntries = true;
+        break;
+      }
+    }
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return;
+    throw error;
+  }
+  if (hasEntries) return;
+  const configPath = join(root, "mere", "config.kdl");
+  const existing = await Deno.readTextFile(configPath);
+  const marker = `repo "${repository}" {`;
+  const start = existing.indexOf(marker);
+  if (start < 0) return;
+  const close = existing.indexOf("}", start);
+  if (close < 0) throw new Error(`invalid Mere config: unterminated ${marker}`);
+  let begin = start;
+  if (begin > 0 && existing[begin - 1] === "\n") begin--;
+  let end = close + 1;
+  if (existing[end] === "\n") end++;
+  await Deno.writeTextFile(
+    configPath,
+    existing.slice(0, begin) + existing.slice(end),
+  );
+}
+
 /** Materialize the development key and isolated trust files for build/import. */
 async function prepareSigningKey(
   binary: string,
@@ -583,12 +618,12 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.08.4",
+  version: "2026.11.08.5",
   description: "Read, validate, build, and import merelinux recipes.",
   upgrades: [{
-    toVersion: "2026.11.08.4",
+    toVersion: "2026.11.08.5",
     description:
-      "Add isolated development signing-key handling and importOutputs for smoke installation.",
+      "Avoid configuring an empty local repository during signed recipe builds; clean up failed imports before retry.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -939,12 +974,13 @@ export const behavior = {
           if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
         const startedAt = Date.now();
+        await removeEmptyRepositoryConfig(tool.root, "local");
         const globals = GlobalArgs.parse(context.globalArgs);
         const prepared = await prepareSigningKey(
           tool.binary,
           tool.root,
           globals.signingKey,
-          "local",
+          "",
           context.signal,
         );
         let result;
