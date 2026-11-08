@@ -90,6 +90,7 @@ function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Derive the stable cache key for a source URL. */
 export async function urlKey(url: string): Promise<string> {
   return hex(
     new Uint8Array(
@@ -174,6 +175,7 @@ async function cachedArtifact(
   }
 }
 
+/** Download, hash, and atomically cache one HTTPS source artifact. */
 export async function downloadArtifact(
   url: string,
   directory: string,
@@ -321,6 +323,7 @@ async function providersFor(context: UpstreamContext) {
   };
 }
 
+/** Convert parsed recipe data into an upstream lookup request. */
 export function recipeToInput(a: Record<string, unknown>): LookupInput {
   const sources = (a.sources ?? []) as {
     url: string;
@@ -399,6 +402,7 @@ async function lookupOne(
   });
 }
 
+/** Behavior that resolves upstream versions and hashes source artifacts. */
 export const behavior = {
   type: "@jeremy/mere/source",
   version: "2026.11.04.1",

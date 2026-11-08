@@ -46,6 +46,7 @@ const ToolchainSchema = z.object({
   durationMs: z.number().nonnegative(),
 });
 
+/** Filesystem locations for one isolated Mere toolchain binding. */
 export interface ToolchainPaths {
   base: string;
   binDir: string;
@@ -71,6 +72,7 @@ export function resolvePaths(
   };
 }
 
+/** Calculate the SHA-256 digest of a file. */
 export async function sha256File(path: string): Promise<string> {
   const hash = createHash("sha256");
   const file = await Deno.open(path, { read: true });
@@ -134,6 +136,7 @@ async function assertVersion(
   }
 }
 
+/** Behavior that provisions and verifies an isolated Mere toolchain. */
 export const behavior = {
   type: "@jeremy/mere/toolchain",
   version: "2026.11.04.1",

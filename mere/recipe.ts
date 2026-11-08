@@ -229,6 +229,7 @@ type Context = {
   >;
 };
 
+/** Resolve a recipe checkout path from the repo directory and optional override. */
 export function checkoutDir(repoDir: string, configured: string): string {
   return configured ||
     join(repoDir, ".swamp", "mere", "checkouts", "merelinux");
@@ -390,6 +391,7 @@ async function latestBuildLog(root: string, tuple: string, since: number) {
 
 const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
 
+/** Build the stable data instance name for a parsed recipe. */
 export function recipeInstanceName(category: string, name: string): string {
   return `recipe-${category}-${name}`;
 }
@@ -420,6 +422,7 @@ async function listRecipes(root: string): Promise<string[]> {
   return found.sort();
 }
 
+/** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
   version: "2026.11.04.1",

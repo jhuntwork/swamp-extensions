@@ -122,6 +122,7 @@ function markdown(totals: CostTotals, byRepo: RepoTotals[]): string {
   return lines.join("\n");
 }
 
+/** Method report aggregating imported coding-agent session costs. */
 export const report = {
   name: "@jeremy/mere/work-cost",
   description:

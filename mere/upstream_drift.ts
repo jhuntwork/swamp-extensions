@@ -31,6 +31,7 @@ interface Context {
   };
 }
 
+/** Workflow report showing recipes that differ from upstream releases. */
 export const report = {
   name: "@jeremy/mere/upstream-drift",
   description:
