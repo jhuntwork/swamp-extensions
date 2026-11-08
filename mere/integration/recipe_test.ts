@@ -223,6 +223,48 @@ Deno.test("setVersion edits a worktree recipe and records the change", async () 
   }
 });
 
+Deno.test("bumpRelease edits only a worktree recipe and records the change", async () => {
+  const repo = await createRepo();
+  const tree = await fixtureCheckout();
+  try {
+    await createRecipe(repo, "merelinux", [
+      "--global-arg",
+      `checkoutPath=${tree}`,
+      "--global-arg",
+      "ensureCheckout=false",
+    ]);
+    const run = await repo.json([
+      "behavior",
+      "run",
+      "merelinux",
+      "bumpRelease",
+      "--input",
+      "recipe=core/zlib-ng",
+      "--input",
+      `checkoutPath=${tree}`,
+    ]);
+    assertEquals(run.status, "succeeded");
+    const change = (run.dataArtifacts as {
+      name: string;
+      attributes: Record<string, unknown>;
+    }[]).find((a) => a.name === "change-zlib-ng")!.attributes;
+    assertEquals(change.version, { before: "2.3.3", after: "2.3.3" });
+    assertEquals(change.release, { before: 7, after: 8 });
+    assertEquals(change.sources, []);
+    const diff = await new Deno.Command("git", {
+      args: ["diff", "--numstat"],
+      cwd: tree,
+    }).output();
+    assertEquals(
+      new TextDecoder().decode(diff.stdout).trim().split("\t").slice(0, 2),
+      ["1", "1"],
+    );
+  } finally {
+    await repo.cleanup();
+    await Deno.remove(tree, { recursive: true });
+  }
+});
+
 Deno.test({
   name:
     "validate and build run mere on a worktree recipe, and failures keep their diagnostics (network)",

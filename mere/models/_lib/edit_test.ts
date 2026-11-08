@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "./assert_test.ts";
-import { setVersion } from "./edit.ts";
+import { bumpRelease, setVersion } from "./edit.ts";
 import { parseRecipe } from "./kdl.ts";
 
 const FIXTURES = new URL("../../testdata/merelinux/recipes/", import.meta.url)
@@ -14,6 +14,28 @@ function rejects(fn: () => unknown, message: string) {
   return assertRejects(() => Promise.resolve().then(fn), Error, message);
 }
 
+Deno.test("bumpRelease changes only the release", async () => {
+  const text = await load("core/zlib-ng");
+  const { text: edited, change } = bumpRelease(
+    text,
+    "recipes/core/zlib-ng/recipe.kdl",
+  );
+  const before = text.split("\n");
+  const after = edited.split("\n");
+  const differing = before.flatMap((line, index) =>
+    line === after[index] ? [] : [index]
+  );
+  assertEquals(differing.length, 1);
+  assertEquals(edited.includes('version "2.3.3"'), true);
+  assertEquals(edited.includes("release 8"), true);
+  assertEquals(change.version, { before: "2.3.3", after: "2.3.3" });
+  assertEquals(change.release, { before: 7, after: 8 });
+  assertEquals(change.sources, []);
+  assertEquals(
+    parseRecipe(edited, "recipes/core/zlib-ng/recipe.kdl").release,
+    8,
+  );
+});
 Deno.test("setVersion changes only version, release and the source hash", async () => {
   const text = await load("core/zlib-ng");
   const { text: edited, change } = setVersion(

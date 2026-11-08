@@ -2,7 +2,10 @@ import { z } from "npm:zod@4.1.12";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./models/_lib/kdl.ts";
-import { setVersion } from "./models/_lib/edit.ts";
+import {
+  bumpRelease as editBumpRelease,
+  setVersion,
+} from "./models/_lib/edit.ts";
 import { findDependents, renderSummary } from "./models/_lib/bump.ts";
 import { runChecked, runCommand } from "./models/_lib/runner.ts";
 
@@ -150,6 +153,8 @@ const BuildArgs = RecipeCheckoutArgs.extend({
   noCache: z.boolean().default(true).describe("As CI does."),
   timeoutMinutes: z.number().int().min(1).max(240).default(60),
 });
+
+const ReleaseBumpArgs = RecipeCheckoutArgs;
 
 const CleanupSchema = z.object({
   path: z.string(),
@@ -858,6 +863,39 @@ export const behavior = {
           hashes,
           allowHardcodedVersion: args.allowHardcodedVersion,
         });
+        const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+        await Deno.writeTextFile(temporary, edited.text);
+        await Deno.rename(temporary, file);
+        const name = args.recipe.split("/")[1];
+        const handle = await context.writeResource("change", `change-${name}`, {
+          recipe: args.recipe,
+          path: rel,
+          checkoutPath: args.checkoutPath,
+          baseCommit,
+          ...edited.change,
+          schemaVersion: 1,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+    bumpRelease: {
+      description:
+        "Increment a recipe's release number in a worktree without changing " +
+        "its version, sources or any other file content.",
+      kind: "action",
+      arguments: ReleaseBumpArgs,
+      execute: async (
+        args: z.infer<typeof ReleaseBumpArgs>,
+        context: Context,
+      ) => {
+        if (!args.checkoutPath.startsWith("/")) {
+          throw new Error("checkoutPath must be an absolute path");
+        }
+        const rel = `recipes/${args.recipe}/recipe.kdl`;
+        const file = join(args.checkoutPath, rel);
+        const text = await Deno.readTextFile(file);
+        const baseCommit = await headCommit(args.checkoutPath, context.signal);
+        const edited = editBumpRelease(text, rel);
         const temporary = `${file}.${crypto.randomUUID()}.tmp`;
         await Deno.writeTextFile(temporary, edited.text);
         await Deno.rename(temporary, file);
