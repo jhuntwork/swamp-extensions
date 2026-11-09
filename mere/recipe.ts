@@ -466,24 +466,35 @@ async function removeEmptyRepositoryConfig(
   repository: string,
 ): Promise<void> {
   const repositoryDir = join(root, "mere", "dev", "repo", repository);
-  let hasEntries = false;
   try {
-    for await (const entry of Deno.readDir(repositoryDir)) {
-      if (entry.name !== ".keep") {
-        hasEntries = true;
-        break;
-      }
-    }
+    const database = await Deno.stat(join(repositoryDir, "repo.db"));
+    if (database.isFile) return;
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) return;
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+  const configPath = join(root, "mere", "config.kdl");
+  let existing: string;
+  try {
+    existing = await Deno.readTextFile(configPath);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      await Deno.remove(repositoryDir, { recursive: true }).catch(
+        (removeError) => {
+          if (!(removeError instanceof Deno.errors.NotFound)) throw removeError;
+        },
+      );
+      return;
+    }
     throw error;
   }
-  if (hasEntries) return;
-  const configPath = join(root, "mere", "config.kdl");
-  const existing = await Deno.readTextFile(configPath);
   const marker = `repo "${repository}" {`;
   const start = existing.indexOf(marker);
-  if (start < 0) return;
+  if (start < 0) {
+    await Deno.remove(repositoryDir, { recursive: true }).catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    });
+    return;
+  }
   const close = existing.indexOf("}", start);
   if (close < 0) throw new Error(`invalid Mere config: unterminated ${marker}`);
   let begin = start;
@@ -494,6 +505,9 @@ async function removeEmptyRepositoryConfig(
     configPath,
     existing.slice(0, begin) + existing.slice(end),
   );
+  await Deno.remove(repositoryDir, { recursive: true }).catch((error) => {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  });
 }
 
 /** Materialize the development key and isolated trust files for build/import. */
@@ -547,9 +561,6 @@ async function prepareSigningKey(
     }
     if (repository) {
       await configureLocalRepository(root, repository, fingerprint);
-      await Deno.mkdir(join(root, "mere", "dev", "repo", repository), {
-        recursive: true,
-      });
     }
     complete = true;
     return { keyPath, home, fingerprint };
@@ -620,12 +631,12 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.08.6",
+  version: "2026.11.08.7",
   description: "Read, validate, build, and import merelinux recipes.",
   upgrades: [{
-    toVersion: "2026.11.08.6",
+    toVersion: "2026.11.08.7",
     description:
-      "Avoid configuring an empty local repository during signed recipe builds and clean up failed imports before retry.",
+      "Bootstrap the local repository through Mere import and remove uninitialized repositories before retry.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
