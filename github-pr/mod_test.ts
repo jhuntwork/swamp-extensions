@@ -3,7 +3,7 @@ import { model } from "./mod.ts";
 
 Deno.test("model exposes the stable PR contract", () => {
   assertEquals(model.type, "@jeremy/github-pr");
-  assertEquals(model.version, "2026.11.08.1");
+  assertEquals(model.version, "2026.11.08.2");
   assertEquals(Object.keys(model.resources).sort(), [
     "applied",
     "plan",
