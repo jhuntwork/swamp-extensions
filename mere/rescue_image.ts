@@ -9,6 +9,21 @@ const SOURCE_COMMIT = /^[0-9a-f]{40}$/;
 const REQUIRED_REPOSITORY = "github.com/jhuntwork/merelinux";
 const MAX_OUTPUT_BYTES = 128 * 1024;
 const BUILD_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const RESCUE_RUNTIME_FILES = [
+  "usr/bin/mere",
+  "usr/bin/curl",
+  "lib/ld-musl-x86_64.so.1",
+  "usr/lib/libcurl.so.4",
+  "usr/lib/libssl.so.3",
+  "usr/lib/libcrypto.so.3",
+  "usr/lib/libz.so.1",
+  "usr/lib/libpsl.so.5",
+  "etc/ssl/certs/ca-certificates.crt",
+  "usr/share/udhcpc/default.script",
+  "sbin/udhcpc",
+  "sbin/ip",
+  "etc/dinit.d/network-dhcp",
+] as const;
 const UNSAFE_COMMANDS = new Set([
   "swapon",
   "swapoff",
@@ -1182,6 +1197,20 @@ async function executeBuild(
     );
   }
   const generated = `${outputDir}/generated-inputs`;
+  const rescueRoot = `${generated}/rescue-root`;
+  for (const relativePath of RESCUE_RUNTIME_FILES) {
+    await requireExistingFile(
+      `${rescueRoot}/${relativePath}`,
+      `rescue runtime file ${relativePath}`,
+    );
+  }
+  if (
+    await sha256(`${rescueRoot}/usr/bin/mere`) !== await sha256(args.mereBinary)
+  ) {
+    throw new Error(
+      "rescue root Mere binary does not match the pinned input binary",
+    );
+  }
   const includeFixture = args.includeFixture || args.fullCompare;
   const commandArgs = [
     `${sourcePath}/misc-util/rescue-image-build`,
