@@ -42,12 +42,13 @@ const base: SummaryInput = {
   dependents: ["curl", "git"],
 };
 
-Deno.test("a plain patch bump has release notes, evidence and dependents, nothing the diff shows", () => {
+Deno.test("a bump body contains only upstream release context", () => {
   const s = renderSummary({
     ...base,
     bump: {
       ...base.bump,
       releaseNotesUrl: "https://github.com/o/r/releases/tag/2.3.4",
+      releaseSummary: "This release fixes a parser bug and adds a setting.",
     },
   });
   assertEquals(s.title, "zlib-ng: upgrade to 2.3.4");
@@ -55,30 +56,27 @@ Deno.test("a plain patch bump has release notes, evidence and dependents, nothin
   assertEquals(s.labels, ["automated", "bump"]);
   assertEquals(
     s.body,
-    [
-      "Release notes: https://github.com/o/r/releases/tag/2.3.4",
-      "Built and validated locally on x86_64. Dependents: `curl`, `git`.",
-      "Opened by recipe-bump (run `run-1`).",
-    ].join("\n\n"),
+    "This release fixes a parser bug and adds a setting. Release notes: " +
+      "https://github.com/o/r/releases/tag/2.3.4",
   );
-  // None of the things the diff already shows.
-  for (const noise of ["blake3", "bytes", "sha256", "Source hashes", "## "]) {
-    assertEquals(s.body.includes(noise), false, noise);
-  }
 });
 
-Deno.test("no dependents and no release link: only the evidence and the run", () => {
-  const s = renderSummary({ ...base, dependents: [] });
+Deno.test("no release summary falls back to the release link only", () => {
+  const s = renderSummary({
+    ...base,
+    dependents: [],
+    bump: {
+      ...base.bump,
+      releaseNotesUrl: "https://github.com/o/r/releases/tag/2.3.4",
+    },
+  });
   assertEquals(
     s.body,
-    [
-      "Built and validated locally on x86_64.",
-      "Opened by recipe-bump (run `run-1`).",
-    ].join("\n\n"),
+    "Release notes: https://github.com/o/r/releases/tag/2.3.4",
   );
 });
 
-Deno.test("migration review says why and what newer versions exist", () => {
+Deno.test("migration state changes labels, not the maintainer-facing body", () => {
   const s = renderSummary({
     ...base,
     bump: {
@@ -89,14 +87,15 @@ Deno.test("migration review says why and what newer versions exist", () => {
       targetSource: "explicit",
       needsMigration: true,
       hardcodedVersion: { exact: false, series: true },
+      releaseSummary: "This release adds a setting.",
+      releaseNotesUrl: "https://github.com/o/r/releases/tag/2.3.4",
     },
     dependents: [],
   });
   assertEquals(s.labels, ["automated", "bump", "needs-migration"]);
-  assertEquals(s.body.startsWith("**Needs migration review:**"), true);
-  assertEquals(s.body.includes("this is a minor update (2.3.3 → 2.3.4)"), true);
-  assertEquals(s.body.includes("chosen explicitly"), true);
-  assertEquals(s.body.includes("spell out its version or series"), true);
-  assertEquals(s.body.includes("Newest upstream: 2.5.0."), true);
-  assertEquals(s.body.includes("Newest in the current series: 2.3.9."), true);
+  assertEquals(
+    s.body,
+    "This release adds a setting. Release notes: " +
+      "https://github.com/o/r/releases/tag/2.3.4",
+  );
 });
