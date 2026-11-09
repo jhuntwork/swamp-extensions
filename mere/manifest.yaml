@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere"
-version: "2026.11.08.7"
+version: "2026.11.08.8"
 description: "Mere domain behaviors: source artifacts, a pinned toolchain, source-tree validation, and reproducible rescue-image assembly."
 license: MIT
 repository: "https://github.com/jhuntwork/swamp-extensions"

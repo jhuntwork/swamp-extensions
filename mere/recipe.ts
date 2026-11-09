@@ -438,30 +438,7 @@ function publicKeyFromSigningKey(secret: Uint8Array): Uint8Array {
   return Uint8Array.from([...header, ...secret.slice(48)]);
 }
 
-async function configureLocalRepository(
-  root: string,
-  repository: string,
-  fingerprint: string,
-): Promise<void> {
-  const configPath = join(root, "mere", "config.kdl");
-  const existing = await Deno.readTextFile(configPath);
-  const block = `repo "${repository}" {
-    url "file:///mere/dev/repo/${repository}"
-    priority 200
-    trusted-fingerprints "${fingerprint}"
-}`;
-  if (existing.includes(`repo "${repository}"`)) {
-    if (!existing.includes(`trusted-fingerprints "${fingerprint}"`)) {
-      throw new Error(
-        `isolated Mere config already has repository ${repository} with a different signing key`,
-      );
-    }
-    return;
-  }
-  await Deno.writeTextFile(configPath, `${existing.trimEnd()}\n\n${block}\n`);
-}
-
-async function removeEmptyRepositoryConfig(
+async function removeUninitializedRepository(
   root: string,
   repository: string,
 ): Promise<void> {
@@ -472,39 +449,6 @@ async function removeEmptyRepositoryConfig(
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
-  const configPath = join(root, "mere", "config.kdl");
-  let existing: string;
-  try {
-    existing = await Deno.readTextFile(configPath);
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      await Deno.remove(repositoryDir, { recursive: true }).catch(
-        (removeError) => {
-          if (!(removeError instanceof Deno.errors.NotFound)) throw removeError;
-        },
-      );
-      return;
-    }
-    throw error;
-  }
-  const marker = `repo "${repository}" {`;
-  const start = existing.indexOf(marker);
-  if (start < 0) {
-    await Deno.remove(repositoryDir, { recursive: true }).catch((error) => {
-      if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
-    return;
-  }
-  const close = existing.indexOf("}", start);
-  if (close < 0) throw new Error(`invalid Mere config: unterminated ${marker}`);
-  let begin = start;
-  if (begin > 0 && existing[begin - 1] === "\n") begin--;
-  let end = close + 1;
-  if (existing[end] === "\n") end++;
-  await Deno.writeTextFile(
-    configPath,
-    existing.slice(0, begin) + existing.slice(end),
-  );
   await Deno.remove(repositoryDir, { recursive: true }).catch((error) => {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
   });
@@ -515,7 +459,6 @@ async function prepareSigningKey(
   binary: string,
   root: string,
   encoded: string,
-  repository: string,
   signal: AbortSignal,
 ): Promise<{ keyPath: string; home: string; fingerprint: string }> {
   if (!encoded) {
@@ -527,14 +470,12 @@ async function prepareSigningKey(
   const key = decodeSigningKey(encoded);
   const home = join(root, "home");
   const keyDir = join(home, ".mere", "keys");
-  const publicDir = join(root, "mere", "keys");
   const keyPath = join(keyDir, "mere.key");
-  const publicPath = join(publicDir, "dev.pub");
+  const publicPath = join(keyDir, "mere.pub");
   let wroteKey = false;
   let complete = false;
   try {
     await Deno.mkdir(keyDir, { recursive: true, mode: 0o700 });
-    await Deno.mkdir(publicDir, { recursive: true, mode: 0o755 });
     await Deno.writeFile(keyPath, key, { create: true, mode: 0o600 });
     wroteKey = true;
     await Deno.chmod(keyPath, 0o600);
@@ -558,9 +499,6 @@ async function prepareSigningKey(
       ?.toLowerCase();
     if (!fingerprint) {
       throw new Error("mere returned no development key fingerprint");
-    }
-    if (repository) {
-      await configureLocalRepository(root, repository, fingerprint);
     }
     complete = true;
     return { keyPath, home, fingerprint };
@@ -631,12 +569,12 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.08.7",
+  version: "2026.11.08.8",
   description: "Read, validate, build, and import merelinux recipes.",
   upgrades: [{
-    toVersion: "2026.11.08.7",
+    toVersion: "2026.11.08.8",
     description:
-      "Bootstrap the local repository through Mere import and remove uninitialized repositories before retry.",
+      "Use Mere's HOME-based public-key trust contract for auto-discovered local repositories.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -987,13 +925,12 @@ export const behavior = {
           if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
         const startedAt = Date.now();
-        await removeEmptyRepositoryConfig(tool.root, "local");
+        await removeUninitializedRepository(tool.root, "local");
         const globals = GlobalArgs.parse(context.globalArgs);
         const prepared = await prepareSigningKey(
           tool.binary,
           tool.root,
           globals.signingKey,
-          "",
           context.signal,
         );
         let result;
@@ -1176,7 +1113,6 @@ export const behavior = {
             tool.binary,
             tool.root,
             globals.signingKey,
-            args.repository,
             context.signal,
           );
           const result = await runCommand(
