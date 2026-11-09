@@ -545,10 +545,12 @@ async function prepareSigningKey(
     if (!fingerprint) {
       throw new Error("mere returned no development key fingerprint");
     }
-    await configureLocalRepository(root, repository, fingerprint);
-    await Deno.mkdir(join(root, "mere", "dev", "repo", repository), {
-      recursive: true,
-    });
+    if (repository) {
+      await configureLocalRepository(root, repository, fingerprint);
+      await Deno.mkdir(join(root, "mere", "dev", "repo", repository), {
+        recursive: true,
+      });
+    }
     complete = true;
     return { keyPath, home, fingerprint };
   } finally {
@@ -618,12 +620,12 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.08.5",
+  version: "2026.11.08.6",
   description: "Read, validate, build, and import merelinux recipes.",
   upgrades: [{
-    toVersion: "2026.11.08.5",
+    toVersion: "2026.11.08.6",
     description:
-      "Avoid configuring an empty local repository during signed recipe builds; clean up failed imports before retry.",
+      "Avoid configuring an empty local repository during signed recipe builds and clean up failed imports before retry.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
