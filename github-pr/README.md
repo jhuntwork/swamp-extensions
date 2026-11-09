@@ -35,7 +35,13 @@ was asked for, so the state a human approved is the state that gets created.
 This replaces `@jeremy/github-draft-pr`, which required every submission to be a
 draft.
 
-## Workflow role
+## PR description contract
+
+Every submission must have one concise, maintainer-facing paragraph. The adapter
+rejects empty or multi-paragraph bodies, headings, lists, code fences, and
+pipeline, automation, or test-status boilerplate. The diff and pipeline results
+remain the source of truth for implementation details and checks.
+
 
 Use this model at the end of a repository-owned workflow:
 

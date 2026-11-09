@@ -15,7 +15,11 @@ const input = {
     evidenceRef: "evidence://test",
     detail: "",
   }],
-  submission: { title: "test", body: "", draft: false },
+  submission: {
+    title: "test",
+    body: "Explain the example change.",
+    draft: false,
+  },
 };
 
 Deno.test("adapter computes integrity and readiness for slim change facts", async () => {
@@ -50,6 +54,22 @@ Deno.test("adapter accepts both draft and non-draft submissions", async () => {
     submission: { ...input.submission, draft: true },
   });
   assertEquals((await requirePacket(draft)).submission.draft, true);
+});
+
+Deno.test("adapter rejects process and formatting boilerplate in descriptions", async () => {
+  await assertRejects(
+    () =>
+      requirePacketOrChange({
+        ...input,
+        schemaVersion: 1 as const,
+        submission: {
+          ...input.submission,
+          body: "Built and validated locally.\n\nSee the pipeline.",
+        },
+      }),
+    Error,
+    "PR description policy",
+  );
 });
 
 Deno.test("adapter independently enforces packet identity and check invariants", async () => {

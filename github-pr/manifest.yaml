@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/github-pr"
-version: "2026.11.08.2"
+version: "2026.11.08.3"
 description: >
   Narrow GitHub.com same-repository pull-request boundary: preflight, plan,
   apply, and read-back verification. Draft is requested per change rather than
@@ -24,6 +24,7 @@ additionalFiles:
   - DESIGN.md
   - auth.ts
   - preflight.ts
+  - description_policy.ts
   - packet.ts
   - plan.ts
   - apply.ts

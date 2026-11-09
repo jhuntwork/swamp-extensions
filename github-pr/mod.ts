@@ -47,7 +47,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.08.2",
+  version: "2026.11.08.3",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -74,6 +74,13 @@ export const model = {
     toVersion: "2026.11.08.2",
     description:
       "Keep slim change facts applicable to the reviewed plan without requiring a regenerated random packet identity.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.08.3",
+    description:
+      "Require concise maintainer-facing PR descriptions and reject automation or pipeline boilerplate.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
