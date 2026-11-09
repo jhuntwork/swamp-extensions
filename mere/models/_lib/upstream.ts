@@ -33,6 +33,8 @@ export interface Lookup {
   projectId?: number;
   /** Release page per version (GitHub), by the tag that produced it. */
   releaseUrls?: Record<string, string>;
+  /** First useful prose paragraph from the upstream release, when requested. */
+  releaseSummaries?: Record<string, string>;
   /** The project's page, when there is no per-version page (Anitya). */
   projectUrl?: string;
   note?: string;
@@ -134,10 +136,45 @@ function githubHeaders(providers: Providers): Record<string, string> {
   };
 }
 
+function releaseSummary(body: unknown): string | undefined {
+  if (typeof body !== "string") return undefined;
+  const paragraphs = body.replace(/\r\n/g, "\n").trim().split(/\n\s*\n/);
+  for (const paragraph of paragraphs) {
+    const text = paragraph
+      .replace(/^\s*#{1,6}\s+.*$/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[\*_`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text.length >= 20) return text.slice(0, 800);
+  }
+  return undefined;
+}
+
+async function releaseSummaryForTag(
+  base: string,
+  tag: string,
+  providers: Providers,
+  headers: Record<string, string>,
+): Promise<string | undefined> {
+  try {
+    const release = await getJson(
+      `${base}/releases/tags/${encodeURIComponent(tag)}`,
+      providers,
+      headers,
+    ) as { body?: unknown };
+    return releaseSummary(release.body);
+  } catch {
+    return undefined;
+  }
+}
+
 async function githubLatest(
   input: LookupInput,
   repo: { owner: string; repo: string },
   providers: Providers,
+  includeReleaseSummary = false,
 ): Promise<Lookup> {
   const base = `https://api.github.com/repos/${repo.owner}/${repo.repo}`;
   const headers = githubHeaders(providers);
@@ -155,32 +192,71 @@ async function githubLatest(
     }`;
   for (const prefix of prefixes) {
     const urls: Record<string, string> = {};
+    const tagsByVersion: Record<string, string> = {};
     const versions = tagNames.flatMap((tag) => {
       const v = versionFromTag(tag, prefix, input.currentVersion);
-      if (v !== undefined) urls[v] = urlFor(tag);
+      if (v !== undefined) {
+        urls[v] = urlFor(tag);
+        tagsByVersion[v] = tag;
+      }
       return v === undefined ? [] : [v];
     });
     const picked = pickLatest(versions, input.currentVersion, input.override);
     if (picked.latestVersion) {
-      return { provider: "github", ...picked, releaseUrls: urls };
+      const summary = includeReleaseSummary
+        ? await releaseSummaryForTag(
+          base,
+          tagsByVersion[picked.latestVersion],
+          providers,
+          headers,
+        )
+        : undefined;
+      return {
+        provider: "github",
+        ...picked,
+        releaseUrls: urls,
+        ...(summary
+          ? { releaseSummaries: { [picked.latestVersion]: summary } }
+          : {}),
+      };
     }
   }
   const releases = ((await getJson(
     `${base}/releases?per_page=30`,
     providers,
     headers,
-  )) as { tag_name: string; prerelease: boolean; draft: boolean }[])
-    .filter((r) => !r.prerelease && !r.draft);
+  )) as {
+    tag_name: string;
+    prerelease: boolean;
+    draft: boolean;
+    body?: unknown;
+  }[]).filter((r) => !r.prerelease && !r.draft);
   for (const prefix of prefixes) {
     const urls: Record<string, string> = {};
+    const summaries: Record<string, string> = {};
     const versions = releases.flatMap((r) => {
       const v = versionFromTag(r.tag_name, prefix, input.currentVersion);
-      if (v !== undefined) urls[v] = urlFor(r.tag_name);
+      if (v !== undefined) {
+        urls[v] = urlFor(r.tag_name);
+        const summary = releaseSummary(r.body);
+        if (summary) summaries[v] = summary;
+      }
       return v === undefined ? [] : [v];
     });
     const picked = pickLatest(versions, input.currentVersion, input.override);
     if (picked.latestVersion) {
-      return { provider: "github", ...picked, releaseUrls: urls };
+      return {
+        provider: "github",
+        ...picked,
+        releaseUrls: urls,
+        ...(summaries[picked.latestVersion]
+          ? {
+            releaseSummaries: {
+              [picked.latestVersion]: summaries[picked.latestVersion],
+            },
+          }
+          : {}),
+      };
     }
   }
   return {
@@ -298,12 +374,18 @@ async function anityaLatest(
 export async function lookupLatest(
   input: LookupInput,
   providers: Providers,
+  options: { includeReleaseSummary?: boolean } = {},
 ): Promise<Lookup> {
   const override = input.override ?? {};
   const projectId = override.anityaProjectId ?? input.anityaProjectId;
   if (override.github) {
     const [owner, repo] = override.github.split("/");
-    return await githubLatest(input, { owner, repo }, providers);
+    return await githubLatest(
+      input,
+      { owner, repo },
+      providers,
+      options.includeReleaseSummary,
+    );
   }
   if (projectId !== undefined) {
     return await anityaLatest(
@@ -312,7 +394,14 @@ export async function lookupLatest(
     );
   }
   const repo = githubRepo(input.sourceUrl, input.url);
-  if (repo) return await githubLatest(input, repo, providers);
+  if (repo) {
+    return await githubLatest(
+      input,
+      repo,
+      providers,
+      options.includeReleaseSummary,
+    );
+  }
   return await anityaLatest(input, providers);
 }
 

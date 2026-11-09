@@ -65,6 +65,25 @@ Deno.test("github: newest stable tag, prefix inferred, prereleases skipped", asy
   );
 });
 
+Deno.test("github: prepare mode includes the first release paragraph", async () => {
+  const fetcher = fake({
+    "https://api.github.com/repos/zlib-ng/zlib-ng/tags?per_page=100": [
+      { name: "2.3.4" },
+    ],
+    "https://api.github.com/repos/zlib-ng/zlib-ng/releases/tags/2.3.4": {
+      body:
+        "This release fixes a parser bug and adds a setting.\n\n## Changes\n- Detail",
+    },
+  });
+  const result = await lookupLatest(ZLIB, providers(fetcher), {
+    includeReleaseSummary: true,
+  });
+  assertEquals(
+    result.releaseSummaries?.["2.3.4"],
+    "This release fixes a parser bug and adds a setting.",
+  );
+});
+
 Deno.test("github: v-prefixed tags when the URL names the prefix", async () => {
   const fetcher = fake({
     "https://api.github.com/repos/o/r/tags?per_page=100": [

@@ -51,6 +51,7 @@ const BumpSchema = z.object({
   hardcodedVersion: z.object({ exact: z.boolean(), series: z.boolean() }),
   needsMigration: z.boolean(),
   releaseNotesUrl: z.string().optional(),
+  releaseSummary: z.string().optional(),
   branch: z.string(),
   sources: z.array(z.object({
     url: z.string(),
@@ -458,7 +459,9 @@ export const behavior = {
         const input = recipeToInput(a);
         const suffix = input.override?.patchSuffix;
         const providers = await providersFor(context);
-        const lookup = await lookupLatest(input, providers);
+        const lookup = await lookupLatest(input, providers, {
+          includeReleaseSummary: true,
+        });
         let targetVersion = args.version;
         let targetSource: "explicit" | "latestInSeries" = "explicit";
         if (!targetVersion) {
@@ -544,7 +547,10 @@ export const behavior = {
               ? { latestInSeries: lookup.latestInSeries }
               : {}),
             hardcodedVersion: hardcoded,
-            ...(releaseNotesUrl ? { releaseNotesUrl } : {}),
+            releaseNotesUrl,
+            ...(lookup.releaseSummaries?.[targetVersion]
+              ? { releaseSummary: lookup.releaseSummaries[targetVersion] }
+              : {}),
             needsMigration: kind === "major" || kind === "minor" ||
               targetSource === "explicit" || hardcoded.exact ||
               hardcoded.series,
