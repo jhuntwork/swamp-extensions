@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4.4.3";
+import { requirePullRequestDescription } from "./description_policy.ts";
 
 const GitShaSchema = z.string()
   .regex(/^[0-9a-fA-F]{40,64}$/, "must be a full hexadecimal Git object ID")
@@ -212,12 +213,14 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
   if (!readiness.ready) {
     throw new Error("Change packet is not ready for submission");
   }
+  requirePullRequestDescription(packet.submission.body);
   return packet;
 }
 
 /** Compute the integrity receipt internally so callers never need a packet behavior. */
 export async function materializeChange(raw: unknown): Promise<Packet> {
   const change = ChangeSchema.parse(raw);
+  requirePullRequestDescription(change.submission.body);
   const payload = {
     schemaVersion: change.schemaVersion,
     targetRepository: change.targetRepository,
