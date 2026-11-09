@@ -596,12 +596,12 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const behavior = {
   type: "@jeremy/mere/recipe",
-  version: "2026.11.08.9",
+  version: "2026.11.08.10",
   description: "Read, validate, build, and import merelinux recipes.",
   upgrades: [{
-    toVersion: "2026.11.08.9",
+    toVersion: "2026.11.08.10",
     description:
-      "Remove the legacy config repository entry left by pre-HOME trust versions.",
+      "Use Mere import force mode so repeated workflow runs replace existing tuples safely.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -1154,6 +1154,7 @@ export const behavior = {
               args.repository,
               "--key",
               prepared.keyPath,
+              "--force",
             ],
             {
               signal: context.signal,
