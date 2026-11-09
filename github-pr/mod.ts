@@ -47,7 +47,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.08.1",
+  version: "2026.11.08.2",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -67,6 +67,13 @@ export const model = {
     toVersion: "2026.11.08.1",
     description:
       "Accept slim change facts and compute integrity and readiness inside the adapter while retaining legacy packet input.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.08.2",
+    description:
+      "Keep slim change facts applicable to the reviewed plan without requiring a regenerated random packet identity.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

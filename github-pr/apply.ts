@@ -21,6 +21,11 @@ async function sha256(text: string): Promise<string> {
   ).join("");
 }
 
+function isMaterializedPacket(raw: unknown): boolean {
+  return raw !== null && typeof raw === "object" &&
+    "payloadDigest" in (raw as Record<string, unknown>);
+}
+
 /** Apply an approved same-repository plan; never merges or updates a PR. */
 export async function applyPr(
   config: unknown,
@@ -32,7 +37,7 @@ export async function applyPr(
   const packet = await requirePacketOrChange(rawChange);
   const approved = PlanSchema.parse(rawPlan);
   if (
-    approved.packetId !== packet.id ||
+    (isMaterializedPacket(rawChange) && approved.packetId !== packet.id) ||
     approved.packetDigest !== packet.payloadDigest ||
     approved.repository !== packet.targetRepository ||
     approved.base.ref !== packet.base.ref ||

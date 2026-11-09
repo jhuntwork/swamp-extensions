@@ -29,6 +29,25 @@ async function packet(draft = false) {
   });
 }
 
+function change(draft = false) {
+  return {
+    schemaVersion: 1 as const,
+    targetRepository: "owner/repository",
+    sourceRepository: "owner/repository",
+    base: { ref: "main", sha: sha("a") },
+    head: { ref: "feature/change", sha: sha("b") },
+    changedPaths: ["README.md"],
+    checks: [{
+      name: "test",
+      required: true,
+      outcome: "passed" as const,
+      evidenceRef: "evidence://test",
+      detail: "",
+    }],
+    submission: { title: "test title", body: "test body", draft },
+  };
+}
+
 function routes(
   pulls: unknown[],
   created?: unknown,
@@ -81,6 +100,22 @@ function routes(
   }) as typeof fetch;
   return { fetchImpl, calls };
 }
+
+Deno.test("applyPr accepts the same slim change facts used for planning", async () => {
+  const mock = routes([], {
+    number: 12,
+    html_url: "https://github.com/owner/repository/pull/12",
+  });
+  const facts = change();
+  const plan = await planPr(config, facts, mock.fetchImpl);
+  const result = await applyPr(config, facts, plan, mock.fetchImpl);
+  assertEquals(result, {
+    number: 12,
+    url: "https://github.com/owner/repository/pull/12",
+    created: true,
+    draft: false,
+  });
+});
 
 Deno.test("applyPr recognizes an existing PR without POST", async () => {
   const mock = routes([{
