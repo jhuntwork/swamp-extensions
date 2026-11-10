@@ -27,6 +27,12 @@ export const model = {
   type: "@jeremy/github-draft-pr",
   version: "2026.11.10.1",
   globalArguments: Globals,
+  upgrades: [{
+    toVersion: "2026.11.10.1",
+    description:
+      "Tighten Git SHA validation and normalize empty GitHub PR bodies; global arguments unchanged",
+    upgradeAttributes: (old: Record<string, unknown>) => old,
+  }],
   resources: {
     preflight: {
       description: "Bound actor, repository, and base-ref evidence",
