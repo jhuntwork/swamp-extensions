@@ -34,8 +34,7 @@ swamp behavior run kiro-package native_smoke \
   --input expectedCommit=<40-character-commit>
 ```
 
-The expected commit must come from the typed Git operation that prepared the
-attempt-owned checkout. The behavior refuses a dirty checkout or a mismatched
+The expected commit must be a 40- or 64-character Git object ID and must come from the typed Git operation that prepared the attempt-owned checkout. The behavior refuses a dirty checkout or a mismatched
 HEAD, so its evidence cannot be attached to another source tree accidentally.
 
 ## Evidence shape

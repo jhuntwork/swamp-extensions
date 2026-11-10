@@ -1,4 +1,4 @@
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 const MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_FAILURE_BYTES = 1024;
@@ -6,7 +6,7 @@ const MAX_PACK_FILES = 5000;
 const COMMAND_TIMEOUT_MS = 120_000;
 const NATIVE_SMOKE_MARKER = "PI-PACKAGE-NATIVE-SMOKE-OK";
 const NATIVE_SMOKE_PROMPT = `Reply with exactly: ${NATIVE_SMOKE_MARKER}`;
-const COMMIT_RE = /^[0-9a-f]{40}$/;
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 const GlobalArgsSchema = z.object({
   packageRoot: z.string().min(1).refine(
@@ -317,7 +317,7 @@ type ResourceContext = {
 /** Typed Swamp behavior for commit-bound Pi package validation. */
 export const model = {
   type: "@jeremy/pi-package-validation",
-  version: "2026.10.30.1",
+  version: "2026.11.10.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     "package-validation": {
