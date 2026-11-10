@@ -158,6 +158,15 @@ Deno.test("optional non-passing checks are retained but do not block readiness",
 
 Deno.test("packet input rejects ambiguous or unsafe change identity", () => {
   assertThrows(
+    () =>
+      CreatePacketSchema.parse({
+        ...baseInput,
+        base: { ...baseInput.base, sha: "a".repeat(41) },
+      }),
+    Error,
+    "full 40- or 64-character hexadecimal Git object ID",
+  );
+  assertThrows(
     () => CreatePacketSchema.parse({ ...baseInput, head: baseInput.base }),
     Error,
     "must differ from the base ref",
@@ -192,6 +201,7 @@ Deno.test("non-passing checks require an explicit explanation", () => {
 });
 
 Deno.test("model methods write packet and verification resources", async () => {
+  assertEquals(model.upgrades.length, 1);
   const writes: Array<{ spec: string; instance: string; data: unknown }> = [];
   const context = {
     writeResource: (spec: string, instance: string, data: unknown) => {
