@@ -6,15 +6,21 @@ Personal [swamp](https://github.com/swamp-club/swamp) extensions.
 
 A local integration-test harness for the [Mere Linux](https://codeberg.org/merelinux) `mere` <-> `pkgd` package-publish pipeline.
 
-Builds `mere` and `pkgd` from local branch checkouts, runs `pkgd` as a real background process against scratch directories, publishes a real signed test package to it over its actual HTTP `/publish` endpoint, and verifies the result — all without touching the real `/mere/store` or `/mere/dev/repo` on the host.
+The harness requires absolute repository paths and a dedicated scratch directory.
+It uses a scratch ownership marker, bounds subprocess output and source downloads,
+rejects archive path traversal, and never removes the scratch directory itself.
+The publish token is kept in a short-lived curl config file instead of a process
+argument and is redacted from command errors.
 
 ### Methods
 
 - `build` — compile `mere` (`zig build`) and `pkgd` (`go build`) from their local checkouts
 - `start` — generate a throwaway signing key and start `pkgd` against fresh scratch directories
 - `publish_test_package` — build one real signed test package via `mere dev build` and POST it to the running `pkgd` instance
+- `hash_source` — download a bounded HTTP(S) source artifact and verify its Blake3 hash through `mere`
 - `verify_published` — confirm the package landed in the published `repo.db`
-- `stop` — kill the `pkgd` instance and remove all scratch directories
+- `verify_properties` — inspect package metadata stored in `repo.db`
+- `stop` — terminate the verified harness process and remove only its owned scratch entries
 
 ### Usage
 
@@ -42,7 +48,7 @@ end to end — build, publish over real HTTP, and confirm the package
 actually landed — without ever touching the real system's package store.
 Running that by hand is a dozen fiddly steps (generate a throwaway key,
 wire up scratch directories, start a background process, clean up after).
-This extension turns it into five typed methods.
+This extension turns those operations into typed methods.
 
 ### As a workflow
 
