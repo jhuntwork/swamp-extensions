@@ -1255,7 +1255,8 @@ async function executeBuild(
     "rescue Mere system profile",
   );
   if (
-    await sha256(`${rescueRoot}/usr/local/bin/mere`) !== await sha256(args.mereBinary)
+    await sha256(`${rescueRoot}/usr/local/bin/mere`) !==
+      await sha256(args.mereBinary)
   ) {
     throw new Error(
       "rescue root Mere binary does not match the pinned input binary",
