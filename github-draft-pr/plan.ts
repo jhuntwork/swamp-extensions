@@ -2,37 +2,84 @@ import { z } from "npm:zod@4.4.3";
 import { Packet, requireDraftPacket } from "./packet.ts";
 import { preflight, PreflightConfigSchema } from "./preflight.ts";
 
+const RepositorySchema = z.string().regex(
+  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/,
+);
+const RefSchema = z.string().min(1).max(512).refine(
+  (value) => !/\s/.test(value),
+  "must not contain whitespace",
+);
+const ShaSchema = z.string().regex(
+  /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
+  "must be a full 40- or 64-character hexadecimal Git object ID",
+);
+
 export const DraftPlanSchema = z.object({
   id: z.uuid(),
   createdAt: z.iso.datetime(),
   packetId: z.uuid(),
   packetDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  repository: z.string(),
+  repository: RepositorySchema,
   base: z.object({
-    ref: z.string(),
-    sha: z.string().regex(
-      /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
-      "must be a full 40- or 64-character hexadecimal Git object ID",
-    ),
+    ref: RefSchema,
+    sha: ShaSchema,
   }),
   head: z.object({
-    ref: z.string(),
-    sha: z.string().regex(
-      /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
-      "must be a full 40- or 64-character hexadecimal Git object ID",
-    ),
+    ref: RefSchema,
+    sha: ShaSchema,
   }),
-  title: z.string(),
-  body: z.string(),
+  title: z.string().min(1).max(256),
+  body: z.string().max(65535),
   bodyDigest: z.string().regex(/^[0-9a-f]{64}$/),
   draft: z.literal(true),
   existingPullRequest: z.object({
     number: z.number().int().positive(),
-    url: z.string(),
+    url: z.url(),
   }).nullable(),
 });
 
 export type DraftPlan = z.infer<typeof DraftPlanSchema>;
+
+type PullSummary = {
+  number?: unknown;
+  html_url?: unknown;
+  draft?: unknown;
+  head?: {
+    ref?: unknown;
+    sha?: unknown;
+    repo?: { full_name?: unknown };
+  };
+  base?: {
+    ref?: unknown;
+    sha?: unknown;
+    repo?: { full_name?: unknown };
+  };
+};
+
+function matchingPullRequest(
+  pull: PullSummary,
+  packet: Packet,
+  repository: string,
+): { number: number; url: string } | null {
+  if (
+    typeof pull.number !== "number" ||
+    !Number.isInteger(pull.number) ||
+    pull.number <= 0 ||
+    typeof pull.html_url !== "string" ||
+    pull.draft !== true
+  ) return null;
+  if (
+    pull.head?.repo?.full_name !== repository ||
+    pull.base?.repo?.full_name !== repository ||
+    pull.head.ref !== packet.head.ref ||
+    pull.base.ref !== packet.base.ref ||
+    typeof pull.head.sha !== "string" ||
+    typeof pull.base.sha !== "string" ||
+    pull.head.sha.toLowerCase() !== packet.head.sha ||
+    pull.base.sha.toLowerCase() !== packet.base.sha
+  ) return null;
+  return { number: pull.number, url: pull.html_url };
+}
 
 type FetchLike = typeof fetch;
 
@@ -112,12 +159,20 @@ export async function planDraft(
     base: packet.base.ref,
     per_page: "100",
   });
-  const pulls = await getJson(
+  const pullsRaw = await getJson(
     fetchImpl,
     config.token,
     `/repos/${config.repository}/pulls?${query}`,
-  ) as Array<{ number?: unknown; html_url?: unknown }>;
-  const existing = pulls.length === 0 ? null : pulls[0];
+  );
+  if (!Array.isArray(pullsRaw)) {
+    throw new Error("GitHub plan returned a non-array pull-request response");
+  }
+  const existing = pullsRaw
+    .map((pull) =>
+      matchingPullRequest(pull as PullSummary, packet, config.repository)
+    )
+    .find((pull): pull is { number: number; url: string } => pull !== null) ??
+    null;
 
   return DraftPlanSchema.parse({
     id: crypto.randomUUID(),
@@ -131,8 +186,6 @@ export async function planDraft(
     body: packet.submission.body,
     bodyDigest: await sha256(packet.submission.body),
     draft: true,
-    existingPullRequest: existing === null
-      ? null
-      : { number: existing.number, url: existing.html_url },
+    existingPullRequest: existing,
   });
 }

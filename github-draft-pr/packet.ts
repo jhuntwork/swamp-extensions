@@ -10,7 +10,7 @@ const GitShaSchema = z.string()
 const GitRefSchema = z.string()
   .min(1)
   .max(512)
-  .refine((value) => !/\\s/.test(value), "must not contain whitespace");
+  .refine((value) => !/\s/.test(value), "must not contain whitespace");
 
 const RelativePathSchema = z.string()
   .min(1)
