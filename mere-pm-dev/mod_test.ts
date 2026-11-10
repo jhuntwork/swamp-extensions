@@ -1,5 +1,13 @@
-import { assertEquals } from "jsr:@std/assert@1";
-import { fixedArgv, resultIdentity, truncate } from "./mod.ts";
+import { assertEquals, assertThrows } from "jsr:@std/assert@1.0.19";
+import { fixedArgv, model, resultIdentity, truncate } from "./mod.ts";
+
+Deno.test("source paths must be absolute", () => {
+  assertThrows(
+    () => model.methods.build.arguments.parse({ sourcePath: "relative" }),
+    Error,
+    "absolute path",
+  );
+});
 
 Deno.test("fixedArgv keeps package-manager validation commands bounded", () => {
   assertEquals(fixedArgv("build"), ["zig", "build"]);

@@ -1,7 +1,7 @@
 // ABOUTME: Bounded Swamp model for building and validating the Mere package-manager source tree.
 // ABOUTME: Executes fixed Zig argv only; it has no release acquisition, package-root, recipe, or publishing authority.
 // deno-lint-ignore-file no-import-prefix
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MERE_BINARY_RELATIVE_PATH = "zig-out/bin/mere";
@@ -23,7 +23,10 @@ type ModelContext = {
 };
 
 const SourcePathArgsSchema = z.object({
-  sourcePath: z.string().min(1).describe(
+  sourcePath: z.string().min(1).refine(
+    (value) => value.startsWith("/"),
+    "sourcePath must be an absolute path",
+  ).describe(
     "Absolute path to the Mere package-manager source checkout or isolated worktree.",
   ),
 });
@@ -96,6 +99,7 @@ export async function runCommand(
   cwd: string,
   signal?: AbortSignal,
 ): Promise<Deno.CommandOutput> {
+  // swamp-quality-ignore deno-command
   return await new Deno.Command(argv[0], {
     args: argv.slice(1),
     cwd,
@@ -202,7 +206,7 @@ async function executeAndStore(
 /** Source-tree validation for the Mere package manager itself. */
 export const model = {
   type: "@jeremy/mere-pm-dev",
-  version: "2026.08.23.1",
+  version: "2026.11.10.1",
   description:
     "Build and validate an explicit Mere package-manager source tree using fixed, cancellable Zig commands.",
   globalArguments: z.object({}),
@@ -222,6 +226,22 @@ export const model = {
       upgradeAttributes: (
         _old: Record<string, unknown>,
       ): Record<string, unknown> => ({}),
+    },
+    {
+      toVersion: "2026.11.03.1",
+      description:
+        "Align the model version with the published manifest; global arguments unchanged.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.11.10.1",
+      description:
+        "Pin zod, require absolute source paths, and document fixed subprocess execution. Global arguments unchanged.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
     },
   ],
   resources: {
