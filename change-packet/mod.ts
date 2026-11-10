@@ -6,7 +6,10 @@ import { z } from "npm:zod@4.4.3";
 const PacketSchemaVersion = 1;
 
 const GitShaSchema = z.string()
-  .regex(/^[0-9a-fA-F]{40,64}$/, "must be a full hexadecimal Git object ID")
+  .regex(
+    /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/,
+    "must be a full 40- or 64-character hexadecimal Git object ID",
+  )
   .transform((value) => value.toLowerCase());
 
 const GitRefSchema = z.string()
@@ -251,10 +254,15 @@ export async function verifyPacket(
 /** Model definition for durable, forge-neutral delivery proposals. */
 export const model = {
   type: "@jeremy/change-packet",
-  version: "2026.08.21.1",
+  version: "2026.11.10.1",
   description:
     "Create and verify immutable, forge-neutral change packets from Git identity and validation evidence. Performs no network or repository mutation.",
   globalArguments: z.object({}),
+  upgrades: [{
+    toVersion: "2026.11.10.1",
+    description: "Tighten Git object ID validation; global arguments unchanged",
+    upgradeAttributes: (old: Record<string, unknown>) => old,
+  }],
   resources: {
     packet: {
       description:
