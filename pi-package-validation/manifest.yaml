@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/pi-package-validation"
-version: "2026.10.30.1"
+version: "2026.11.10.1"
 description: >
   Commit-bound validation for Pi packages: fixed npm tests, pack manifests,
   deterministic package-content digests, and a bounded marker-only native Pi

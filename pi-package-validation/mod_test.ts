@@ -2,7 +2,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert@1";
+} from "jsr:@std/assert@1.0.19";
 import { createModelTestContext } from "jsr:@swamp-club/swamp-testing@0.20260706.24";
 import {
   canonicalPackageDigest,
@@ -12,6 +12,13 @@ import {
 } from "./mod.ts";
 
 const COMMIT = "f".repeat(40);
+
+Deno.test("validation accepts SHA-256 Git object IDs", () => {
+  const parsed = model.methods.validate.arguments.parse({
+    expectedCommit: "a".repeat(64),
+  });
+  assertEquals(parsed.expectedCommit, "a".repeat(64));
+});
 
 function contextFor(packageRoot: string) {
   return createModelTestContext({
