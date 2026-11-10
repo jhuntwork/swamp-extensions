@@ -1,12 +1,25 @@
-import { assertEquals, assertFalse, assertThrows } from "jsr:@std/assert@1";
+import { assertEquals, assertFalse, assertThrows } from "jsr:@std/assert@1.0.19";
 import {
   ensureRoot,
+  model,
   parseSHA256SUMS,
   resolveMereRoot,
   runCommand,
   sha256Hex,
   truncate,
 } from "./mod.ts";
+
+Deno.test("package names reject profile syntax injection", () => {
+  assertThrows(
+    () =>
+      model.methods.run.arguments.parse({
+        packages: ["safe-package\"\n profile {"],
+        argv: ["mere", "describe"],
+      }),
+    Error,
+    "package names",
+  );
+});
 
 Deno.test("resolveMereRoot selects the host root without a symlink", () => {
   assertEquals(resolveMereRoot("", true), "/");

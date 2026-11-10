@@ -1,7 +1,7 @@
 // ABOUTME: Executes typed commands inside a Mere Linux shell namespace.
 // ABOUTME: Verifies downloaded Mere binaries and propagates model cancellation.
 // deno-lint-ignore-file no-import-prefix
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 const CODEBERG_API =
   "https://api.github.com/repos/jhuntwork/mere/releases/latest";
@@ -24,6 +24,11 @@ const GlobalArgsSchema = z.object({
     "Use the host Mere root (/), sharing its /mere/store; requires mereRoot to be empty or '/'.",
   ),
 });
+
+const PackageNameSchema = z.string().regex(
+  /^[A-Za-z0-9@._+:/-]+$/,
+  "package names may contain only package identifier characters",
+);
 
 const ResultSchema = z.object({
   exitCode: z.number(),
@@ -279,7 +284,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.11.04.2",
+  version: "2026.11.10.1",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -307,6 +312,13 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.10.1",
+    description:
+      "Pin zod and constrain package names before writing the Mere profile. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     result: {
@@ -321,7 +333,7 @@ export const model = {
       description:
         "Run an exact argv inside a Mere shell with specified packages available.",
       arguments: z.object({
-        packages: z.array(z.string()).describe(
+        packages: z.array(PackageNameSchema).describe(
           "Packages to make available in the shell.",
         ),
         argv: z.array(z.string()).min(1).describe(
