@@ -10,6 +10,21 @@ const config = {
   token: "test-token",
 };
 const sha = (letter: string) => letter.repeat(40);
+const pull = (number: number) => ({
+  number,
+  html_url: `https://github.com/owner/repository/pull/${number}`,
+  draft: true,
+  head: {
+    ref: "feature/change",
+    sha: sha("b"),
+    repo: { full_name: "owner/repository" },
+  },
+  base: {
+    ref: "main",
+    sha: sha("a"),
+    repo: { full_name: "owner/repository" },
+  },
+});
 
 async function packet() {
   return await createPacket({
@@ -83,10 +98,7 @@ function routes(
 }
 
 Deno.test("applyDraft recognizes an existing PR without POST", async () => {
-  const mock = routes([{
-    number: 7,
-    html_url: "https://github.com/owner/repository/pull/7",
-  }]);
+  const mock = routes([pull(7)]);
   const p = await packet();
   const plan = await planDraft(config, p, mock.fetchImpl);
   const result = await applyDraft(config, p, plan, mock.fetchImpl);
@@ -126,10 +138,7 @@ Deno.test("applyDraft reads back once when creation races with an existing PR", 
     [],
     undefined,
     422,
-    [{
-      number: 9,
-      html_url: "https://github.com/owner/repository/pull/9",
-    }],
+    [pull(9)],
   );
   const p = await packet();
   const plan = await planDraft(config, p, mock.fetchImpl);
