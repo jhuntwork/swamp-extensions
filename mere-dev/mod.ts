@@ -2,11 +2,12 @@
 // ABOUTME: Runs `mere dev build` and `mere dev hash` directly (no shell wrapper).
 // ABOUTME: Manages its own dedicated root and binary download.
 // deno-lint-ignore-file no-import-prefix
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 const GITHUB_API =
   "https://api.github.com/repos/jhuntwork/mere/releases/latest";
 const DOWNLOAD_BASE = "https://github.com/jhuntwork/mere/releases/download";
+const CHECKSUMS_FILE = "SHA256SUMS";
 const CONFIG_URL = "https://pkgs.merelinux.org/config.kdl";
 const KEY_URL = "https://pkgs.merelinux.org/mere.pub";
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
@@ -17,6 +18,7 @@ export async function runCommand(
   options: Deno.CommandOptions,
   signal?: AbortSignal,
 ): Promise<Deno.CommandOutput> {
+  // swamp-quality-ignore deno-command
   return await new Deno.Command(command, { ...options, signal }).output();
 }
 
@@ -109,7 +111,39 @@ function getArch(): string {
   return Deno.build.arch;
 }
 
-/** Ensure the mere binary is downloaded and executable. Returns path to binary. */
+/** Parse a SHA256SUMS entry for one exact release asset. */
+export function parseSha256Sums(text: string, fileName: string): string {
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.trim().match(/^([0-9a-f]{64})\s+\*?(.+)$/i);
+    if (match && match[2].trim() === fileName) return match[1].toLowerCase();
+  }
+  throw new Error(`SHA256SUMS has no entry for ${fileName}`);
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function fetchBytes(
+  url: string,
+  description: string,
+): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download ${description}: ${response.status} from ${url}`,
+    );
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** Ensure the mere binary is downloaded and matches the release checksum. */
 async function ensureBinary(
   version: string,
   cacheDir: string,
@@ -117,24 +151,36 @@ async function ensureBinary(
   const arch = getArch();
   const binaryName = `mere-${version}-linux-${arch}`;
   const binaryPath = `${cacheDir}/${binaryName}`;
+  const baseUrl = `${DOWNLOAD_BASE}/v${version}`;
+  const binaryUrl = `${baseUrl}/${binaryName}`;
+  const checksums = new TextDecoder().decode(
+    await fetchBytes(`${baseUrl}/${CHECKSUMS_FILE}`, CHECKSUMS_FILE),
+  );
+  const expected = parseSha256Sums(checksums, binaryName);
 
+  let bytes: Uint8Array;
+  let needsWrite = false;
   try {
-    const stat = await Deno.stat(binaryPath);
-    if (stat.isFile) return binaryPath;
+    bytes = await Deno.readFile(binaryPath);
   } catch {
-    // Not cached yet — download
+    bytes = await fetchBytes(binaryUrl, `mere ${version} for ${arch}`);
+    needsWrite = true;
   }
 
-  await Deno.mkdir(cacheDir, { recursive: true });
-  const url = `${DOWNLOAD_BASE}/v${version}/${binaryName}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(
-      `Failed to download mere ${version} for ${arch}: ${res.status} from ${url}`,
-    );
+  if (await sha256Hex(bytes) !== expected) {
+    bytes = await fetchBytes(binaryUrl, `mere ${version} for ${arch}`);
+    if (await sha256Hex(bytes) !== expected) {
+      throw new Error(
+        `SHA-256 mismatch for mere ${version} ${arch}; refusing to cache it`,
+      );
+    }
+    needsWrite = true;
   }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  await Deno.writeFile(binaryPath, bytes, { mode: 0o755 });
+
+  if (needsWrite) {
+    await Deno.mkdir(cacheDir, { recursive: true });
+    await Deno.writeFile(binaryPath, bytes, { mode: 0o755 });
+  }
   return binaryPath;
 }
 
@@ -296,7 +342,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.11.02.1",
+  version: "2026.11.10.1",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -336,9 +382,9 @@ export const model = {
       ): Record<string, unknown> => old,
     },
     {
-      toVersion: "2026.11.02.1",
+      toVersion: "2026.11.10.1",
       description:
-        'Write each result under its own spec name instead of a shared "current" instance, so a later method no longer supersedes an earlier result in the same workflow. No globalArguments changes.',
+        "Verify downloaded Mere release binaries against SHA256SUMS and pin extension dependencies. Global arguments unchanged.",
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,

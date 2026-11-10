@@ -2,10 +2,11 @@ import {
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@1";
+} from "jsr:@std/assert@1.0.19";
 import {
   developmentSigningKeyPath,
   parseBlake3Output,
+  parseSha256Sums,
   runCommand,
 } from "./mod.ts";
 
@@ -42,6 +43,24 @@ Deno.test("parseBlake3Output rejects truncated digests", () => {
     () => parseBlake3Output(`${"a".repeat(63)}  /tmp/source.tar.gz\n`),
     Error,
     "Could not parse a BLAKE3 digest",
+  );
+});
+
+Deno.test("parseSha256Sums extracts the exact release asset digest", () => {
+  assertEquals(
+    parseSha256Sums(
+      `${"A".repeat(64)}  mere-0.23.0-linux-x86_64\n`,
+      "mere-0.23.0-linux-x86_64",
+    ),
+    "a".repeat(64),
+  );
+});
+
+Deno.test("parseSha256Sums rejects a missing release asset", () => {
+  assertThrows(
+    () => parseSha256Sums(`${"a".repeat(64)}  other\n`, "mere"),
+    Error,
+    "no entry",
   );
 });
 
