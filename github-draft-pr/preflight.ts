@@ -15,7 +15,10 @@ export const PreflightResultSchema = z.object({
   repositoryId: z.number().int().positive(),
   defaultBranch: z.string(),
   baseBranch: z.string(),
-  baseSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+  baseSha: z.string().regex(
+    /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
+    "must be a full 40- or 64-character hexadecimal Git object ID",
+  ),
 });
 
 type PreflightConfig = z.infer<typeof PreflightConfigSchema>;

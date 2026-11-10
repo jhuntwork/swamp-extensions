@@ -1,11 +1,12 @@
 manifestVersion: 1
 name: "@jeremy/github-draft-pr"
-version: "2026.08.18.1"
+version: "2026.11.10.1"
 description: >
   Narrow GitHub.com same-repository draft pull-request boundary: preflight,
   plan, apply, and read-back verification. No merge, release, repository
   administration, PR update, or arbitrary endpoint capability.
 repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
 paths:
   base: manifest
 models:

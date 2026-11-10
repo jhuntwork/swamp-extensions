@@ -1,7 +1,10 @@
 import { z } from "npm:zod@4.4.3";
 
 const GitShaSchema = z.string()
-  .regex(/^[0-9a-fA-F]{40,64}$/, "must be a full hexadecimal Git object ID")
+  .regex(
+    /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/,
+    "must be a full 40- or 64-character hexadecimal Git object ID",
+  )
   .transform((value) => value.toLowerCase());
 
 const GitRefSchema = z.string()

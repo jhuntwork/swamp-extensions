@@ -10,11 +10,17 @@ export const DraftPlanSchema = z.object({
   repository: z.string(),
   base: z.object({
     ref: z.string(),
-    sha: z.string().regex(/^[0-9a-f]{40,64}$/),
+    sha: z.string().regex(
+      /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
+      "must be a full 40- or 64-character hexadecimal Git object ID",
+    ),
   }),
   head: z.object({
     ref: z.string(),
-    sha: z.string().regex(/^[0-9a-f]{40,64}$/),
+    sha: z.string().regex(
+      /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
+      "must be a full 40- or 64-character hexadecimal Git object ID",
+    ),
   }),
   title: z.string(),
   body: z.string(),

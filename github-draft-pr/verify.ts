@@ -27,6 +27,7 @@ export async function verifyDraft(
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${config.token}`,
+        "User-Agent": "jeremy-swamp-github-draft-pr",
         "X-GitHub-Api-Version": "2022-11-28",
       },
     },
@@ -48,8 +49,9 @@ export async function verifyDraft(
     throw new Error("GitHub PR URL does not match applied result");
   }
   if (pr.draft !== true) throw new Error("GitHub PR is not a draft");
+  const body = pr.body === null ? "" : pr.body;
   if (
-    pr.title !== packet.submission.title || pr.body !== packet.submission.body
+    pr.title !== packet.submission.title || body !== packet.submission.body
   ) throw new Error("GitHub PR content does not match packet");
   if (
     pr.head?.ref !== packet.head.ref ||
