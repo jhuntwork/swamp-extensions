@@ -9,6 +9,21 @@ const config = {
   token: "test-token",
 };
 const sha = (letter: string) => letter.repeat(40);
+const pull = (number: number) => ({
+  number,
+  html_url: `https://github.com/owner/repository/pull/${number}`,
+  draft: true,
+  head: {
+    ref: "feature/change",
+    sha: sha("b"),
+    repo: { full_name: "owner/repository" },
+  },
+  base: {
+    ref: "main",
+    sha: sha("a"),
+    repo: { full_name: "owner/repository" },
+  },
+});
 
 function mock(routes: Record<string, unknown>) {
   return ((input: string | URL | Request) => {
@@ -60,13 +75,38 @@ Deno.test("planDraft binds a packet to remote refs and discovers an existing PR"
     "https://api.github.com/repos/owner/repository/git/ref/heads/feature%2Fchange":
       { object: { sha: sha("b") } },
     "https://api.github.com/repos/owner/repository/pulls?state=open&head=owner%3Afeature%2Fchange&base=main&per_page=100":
-      [{ number: 7, html_url: "https://github.com/owner/repository/pull/7" }],
+      [{ ...pull(7) }],
   });
   const plan = await planDraft(config, p, fetchImpl);
   assertEquals(plan.existingPullRequest?.number, 7);
   assertEquals(plan.base.sha, sha("a"));
 });
 
+Deno.test("planDraft ignores a same-ref PR that is not an exact draft match", async () => {
+  const p = await packet();
+  const mismatch = {
+    ...pull(7),
+    draft: false,
+  };
+  const fetchImpl = mock({
+    "https://api.github.com/user": { login: "delivery-bot" },
+    "https://api.github.com/repos/owner/repository": {
+      id: 1,
+      full_name: "owner/repository",
+      default_branch: "main",
+    },
+    "https://api.github.com/repos/owner/repository/git/ref/heads/main": {
+      object: { sha: sha("a") },
+    },
+    "https://api.github.com/repos/owner/repository/git/ref/heads/feature%2Fchange":
+      { object: { sha: sha("b") } },
+    "https://api.github.com/repos/owner/repository/pulls?state=open&head=owner%3Afeature%2Fchange&base=main&per_page=100":
+      [mismatch],
+  });
+
+  const plan = await planDraft(config, p, fetchImpl);
+  assertEquals(plan.existingPullRequest, null);
+});
 Deno.test("planDraft rejects forks before GitHub I/O", async () => {
   await assertRejects(
     async () => planDraft(config, await packet("fork/repository"), mock({})),

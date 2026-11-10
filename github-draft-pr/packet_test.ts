@@ -48,11 +48,21 @@ Deno.test("adapter independently enforces packet identity and check invariants",
     () =>
       requireDraftPacket({
         ...packet,
+        head: { ...packet.head, ref: "feature with-space" },
+      }),
+    Error,
+    "must not contain whitespace",
+  );
+  await assertRejects(
+    () =>
+      requireDraftPacket({
+        ...packet,
         base: { ...packet.base, ref: packet.head.ref },
       }),
     Error,
     "must differ from the base ref",
   );
+
   await assertRejects(
     () =>
       requireDraftPacket({

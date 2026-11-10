@@ -25,13 +25,27 @@ type Context = {
 /** Narrow GitHub.com same-repository draft-PR model. It never merges or releases. */
 export const model = {
   type: "@jeremy/github-draft-pr",
-  version: "2026.11.10.1",
+  version: "2026.11.10.3",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.11.10.1",
     description:
       "Tighten Git SHA validation and normalize empty GitHub PR bodies; global arguments unchanged",
     upgradeAttributes: (old: Record<string, unknown>) => old,
+  }, {
+    toVersion: "2026.11.10.2",
+    description:
+      "Reject whitespace in Git refs and require existing pull requests to match every packet-bound identity field.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.10.3",
+    description:
+      "Reject whitespace in Git refs and require existing pull requests to match every packet-bound identity field.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     preflight: {
