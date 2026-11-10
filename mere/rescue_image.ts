@@ -15,7 +15,7 @@ const RESCUE_RUNTIME_FILES = [
   "usr/share/dinit.d/mount-rw",
   "etc/dinit.d/boot",
   "etc/mere-boot.conf",
-  "usr/bin/mere",
+  "usr/local/bin/mere",
   "usr/bin/curl",
   "lib/ld-musl-x86_64.so.1",
   "usr/lib/libcurl.so.4",
@@ -284,23 +284,46 @@ async function requireImageFile(
   label: string,
 ): Promise<void> {
   const imageRoot = resolve(root);
-  let candidate = resolve(imageRoot, relativePath);
+  const initial = relative(imageRoot, resolve(imageRoot, relativePath));
+  let resolvedParts = [] as string[];
+  let pending = initial.split(sep).filter((part) => part.length > 0);
   for (let hop = 0; hop < 64; hop += 1) {
-    const stat = await Deno.lstat(candidate);
-    if (!stat.isSymlink) {
+    while (pending.length > 0) {
+      const component = pending.shift()!;
+      if (component === ".") continue;
+      if (component === "..") {
+        if (resolvedParts.length === 0) {
+          throw new Error(`${label} escapes image root: ${relativePath}`);
+        }
+        resolvedParts.pop();
+        continue;
+      }
+      const candidate = resolve(imageRoot, ...resolvedParts, component);
+      const stat = await Deno.lstat(candidate);
+      if (stat.isSymlink) {
+        const link = await Deno.readLink(candidate);
+        if (link.startsWith("/")) {
+          resolvedParts = [];
+          pending = link.slice(1).split("/").filter((part) => part.length > 0)
+            .concat(pending);
+        } else {
+          pending = link.split("/").filter((part) => part.length > 0)
+            .concat(pending);
+        }
+        break;
+      }
+      resolvedParts.push(component);
+    }
+    if (pending.length === 0) {
+      const candidate = resolve(imageRoot, ...resolvedParts);
+      if (!isWithinRoot(imageRoot, candidate)) {
+        throw new Error(`${label} escapes image root: ${relativePath}`);
+      }
+      const stat = await Deno.lstat(candidate);
       if (!stat.isFile) {
         throw new Error(`${label} must be a file: ${candidate}`);
       }
       return;
-    }
-    const link = await Deno.readLink(candidate);
-    candidate = link.startsWith("/")
-      ? resolve(imageRoot, link.slice(1))
-      : resolve(dirname(candidate), link);
-    if (!isWithinRoot(imageRoot, candidate)) {
-      throw new Error(
-        `${label} symlink escapes image root: ${relativePath} -> ${link}`,
-      );
     }
   }
   throw new Error(`${label} contains too many symlink hops: ${relativePath}`);
@@ -1232,7 +1255,7 @@ async function executeBuild(
     "rescue Mere system profile",
   );
   if (
-    await sha256(`${rescueRoot}/usr/bin/mere`) !== await sha256(args.mereBinary)
+    await sha256(`${rescueRoot}/usr/local/bin/mere`) !== await sha256(args.mereBinary)
   ) {
     throw new Error(
       "rescue root Mere binary does not match the pinned input binary",
