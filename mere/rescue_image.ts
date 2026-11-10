@@ -10,6 +10,11 @@ const REQUIRED_REPOSITORY = "github.com/jhuntwork/merelinux";
 const MAX_OUTPUT_BYTES = 128 * 1024;
 const BUILD_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const RESCUE_RUNTIME_FILES = [
+  "sbin/init",
+  "usr/share/dinit.d/sysinit",
+  "usr/share/dinit.d/mount-rw",
+  "etc/dinit.d/boot",
+  "etc/mere-boot.conf",
   "usr/bin/mere",
   "usr/bin/curl",
   "lib/ld-musl-x86_64.so.1",
@@ -23,6 +28,7 @@ const RESCUE_RUNTIME_FILES = [
   "sbin/udhcpc",
   "sbin/ip",
   "etc/dinit.d/network-dhcp",
+  "etc/dinit.d/rescue-ready",
 ] as const;
 const UNSAFE_COMMANDS = new Set([
   "swapon",
@@ -106,17 +112,7 @@ const RescueImageArgsSchema = z.object({
   ),
   workerLabel: z.string().min(1),
   environmentProfile: z.string().min(1),
-  swampRepoDir: z.string().min(1).refine(
-    (value) => value.startsWith("/"),
-    "swampRepoDir must be an absolute path",
-  ),
-  swampServerTokenFile: z.string().default(""),
-  mereDevBehavior: z.string().min(1),
   mereVersion: z.string().min(1),
-  linuxPackage: z.string().min(1).refine(
-    (value) => value.startsWith("/"),
-    "linuxPackage must be an absolute path",
-  ),
   mereDevRoot: z.string().min(1).refine(
     (value) => value.startsWith("/"),
     "mereDevRoot must be an absolute path",
@@ -1119,10 +1115,8 @@ async function executeBuild(
     "safetySentinelPath",
     true,
   );
-  await requireExistingDirectory(args.swampRepoDir, "swampRepoDir");
   await requireExistingDirectory(args.mereDevRoot, "mereDevRoot");
   await requireExistingFile(args.mereBinary, "mereBinary");
-  await requireExistingFile(args.linuxPackage, "linuxPackage");
   const binaryVersion = await runChecked(args.mereBinary, ["--version"], {
     signal: context.signal,
     timeoutMs: 60_000,
@@ -1159,23 +1153,14 @@ async function executeBuild(
   const preparationArgs = [
     `${sourcePath}/misc-util/rescue-image-build`,
     "--prepare-generated-inputs",
-    "--build-packages",
+    "--pull-packages",
     ...(args.includeFixture || args.fullCompare ? ["--include-fixture"] : []),
-    "--mere-dev-behavior",
-    args.mereDevBehavior,
     "--mere-dev-root",
     args.mereDevRoot,
     "--mere-binary",
     args.mereBinary,
     "--mere-version",
     args.mereVersion,
-    "--linux-package",
-    args.linuxPackage,
-    "--swamp-repo-dir",
-    args.swampRepoDir,
-    ...(args.swampServerTokenFile
-      ? ["--swamp-server-token-file", args.swampServerTokenFile]
-      : []),
     "--tool-profile-root",
     args.toolProfileRoot,
     "--ovmf-tool-profile-root",
