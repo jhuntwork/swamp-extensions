@@ -147,6 +147,7 @@ const ArtifactPairSchema = z.object({
   first: ArtifactSchema,
   second: ArtifactSchema.optional(),
   byte_identical: z.boolean().optional(),
+  dirty_journal: ArtifactSchema.optional(),
 });
 const ManifestSchema = z.object({
   format: z.number(),
