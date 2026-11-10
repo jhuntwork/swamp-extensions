@@ -29,6 +29,10 @@ const RESCUE_RUNTIME_FILES = [
   "sbin/ip",
   "etc/dinit.d/network-dhcp",
   "etc/dinit.d/rescue-ready",
+  "mere/config.kdl",
+  "mere/keys/mere.pub",
+  "mere/profiles/system/current/profile.kdl",
+  "mere/profiles/system/current/realization.v1",
 ] as const;
 const UNSAFE_COMMANDS = new Set([
   "swapon",
@@ -272,6 +276,34 @@ async function requireExistingDirectory(
   if (!stat.isDirectory) {
     throw new Error(`${label} must be a directory: ${path}`);
   }
+}
+
+async function requireImageFile(
+  root: string,
+  relativePath: string,
+  label: string,
+): Promise<void> {
+  const imageRoot = resolve(root);
+  let candidate = resolve(imageRoot, relativePath);
+  for (let hop = 0; hop < 64; hop += 1) {
+    const stat = await Deno.lstat(candidate);
+    if (!stat.isSymlink) {
+      if (!stat.isFile) {
+        throw new Error(`${label} must be a file: ${candidate}`);
+      }
+      return;
+    }
+    const link = await Deno.readLink(candidate);
+    candidate = link.startsWith("/")
+      ? resolve(imageRoot, link.slice(1))
+      : resolve(dirname(candidate), link);
+    if (!isWithinRoot(imageRoot, candidate)) {
+      throw new Error(
+        `${label} symlink escapes image root: ${relativePath} -> ${link}`,
+      );
+    }
+  }
+  throw new Error(`${label} contains too many symlink hops: ${relativePath}`);
 }
 
 async function requireCharacterDevice(
@@ -1185,11 +1217,20 @@ async function executeBuild(
   const generated = `${outputDir}/generated-inputs`;
   const rescueRoot = `${generated}/rescue-root`;
   for (const relativePath of RESCUE_RUNTIME_FILES) {
-    await requireExistingFile(
-      `${rescueRoot}/${relativePath}`,
+    await requireImageFile(
+      rescueRoot,
+      relativePath,
       `rescue runtime file ${relativePath}`,
     );
   }
+  await requireExistingDirectory(
+    `${rescueRoot}/mere/store`,
+    "rescue Mere store",
+  );
+  await requireExistingDirectory(
+    `${rescueRoot}/mere/profiles/system/current`,
+    "rescue Mere system profile",
+  );
   if (
     await sha256(`${rescueRoot}/usr/bin/mere`) !== await sha256(args.mereBinary)
   ) {
