@@ -95,7 +95,7 @@ function issueNumber(value: unknown): number {
 
 function requestRepo(request: Resource, defaultRepo?: string): string {
   if (typeof request.repo === "string" && request.repo.length > 0) {
-    return request.repo;
+    return repoSchema.parse(request.repo);
   }
   if (defaultRepo) return defaultRepo;
   if (typeof request.issue === "string") {
@@ -244,10 +244,18 @@ async function gh(
   const timeout = setTimeout(terminate, GH_TIMEOUT_MS);
   signal?.addEventListener("abort", terminate, { once: true });
   try {
-    const [stdout, stderr] = await Promise.all([
-      readBounded(child.stdout),
-      readBounded(child.stderr),
-    ]);
+    if (signal?.aborted) terminate();
+    let stdout: string;
+    let stderr: string;
+    try {
+      [stdout, stderr] = await Promise.all([
+        readBounded(child.stdout),
+        readBounded(child.stderr),
+      ]);
+    } catch (error) {
+      terminate();
+      throw error;
+    }
     const status = await child.status;
     const error = stderr.trim();
     if (!status.success) throw new Error(error || `gh exited ${status.code}`);
@@ -579,6 +587,11 @@ async function operateOne(
     case "set_type": {
       const number = issueNumber(request.issue);
       const issueType = text(request.type, "request.type");
+      if (!issueTypes.has(issueType)) {
+        throw new Error(
+          `invalid issue type '${issueType}': bug, feature, package, task`,
+        );
+      }
       const issue = await fetchIssue(repo, number);
       if (parseType(issue.body ?? "") === issueType) {
         return { result: { changed: false, type: issueType } };
