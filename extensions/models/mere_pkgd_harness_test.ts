@@ -1,4 +1,8 @@
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import {
+  assertEquals,
+  assertRejects,
+  assertThrows,
+} from "jsr:@std/assert@1.0.19";
 import { createModelTestContext } from "jsr:@swamp-club/swamp-testing@0.20260706.24";
 import {
   escapeSqlString,
@@ -58,6 +62,26 @@ Deno.test("packageNameFromArchive strips version/release/arch/hash suffix", () =
   );
 });
 
+Deno.test("parseBuildOutput rejects archive path traversal", () => {
+  assertThrows(
+    () =>
+      parseBuildOutput([
+        "workspace: /tmp/mere-build-xyz",
+        "output: ../evil-1.0.0-1-x86_64-abc123.pkg.tar.zst",
+      ].join("\n")),
+    Error,
+    "Invalid package archive name",
+  );
+});
+
+Deno.test("method schemas reject non-HTTP source URLs", () => {
+  assertThrows(() =>
+    model.methods.hash_source.arguments.parse({
+      url: "file:///etc/passwd",
+    })
+  );
+});
+
 Deno.test("escapeSqlString doubles embedded single quotes", () => {
   assertEquals(escapeSqlString("o'brien"), "o''brien");
   assertEquals(escapeSqlString("plain"), "plain");
@@ -81,11 +105,12 @@ Deno.test("waitForPath rejects when pkgd never creates its socket", async () => 
 });
 
 Deno.test("build compiles both binaries and records their paths", async () => {
+  const scratchDir = await Deno.makeTempDir({ prefix: "mere-pkgd-harness-" });
   const { context, getWrittenResources } = createModelTestContext({
     globalArgs: {
       mereRepoPath: "/repos/mere",
       pkgdRepoPath: "/repos/pkgd",
-      scratchDir: "/scratch",
+      scratchDir,
     },
   });
 
@@ -106,14 +131,15 @@ Deno.test("build compiles both binaries and records their paths", async () => {
   assertEquals(calls[0], { cmd: "zig", args: ["build"] });
   assertEquals(calls[1], {
     cmd: "go",
-    args: ["build", "-o", "/scratch/pkgd", "./cmd/pkgd"],
+    args: ["build", "-o", `${scratchDir}/bin/pkgd`, "./cmd/pkgd"],
   });
 
   const written = getWrittenResources();
   assertEquals(written.length, 1);
   assertEquals(written[0].specName, "build");
   assertEquals(written[0].data.mereBinPath, "/repos/mere/zig-out/bin/mere");
-  assertEquals(written[0].data.pkgdBinPath, "/scratch/pkgd");
+  assertEquals(written[0].data.pkgdBinPath, `${scratchDir}/bin/pkgd`);
+  await Deno.remove(scratchDir, { recursive: true });
 });
 
 Deno.test("verify_published rejects a query when sqlite3 exits non-zero", async () => {
@@ -174,7 +200,7 @@ Deno.test("verify_published reports not-found (not a failure) on empty result", 
   assertEquals(written[0].data.version, null);
 });
 
-Deno.test("verify_published escapes the package name in the sqlite3 query", async () => {
+Deno.test("verify_published accepts a safe package name in the sqlite query", async () => {
   const { context } = createModelTestContext({
     storedResources: {
       "instance": {
@@ -197,12 +223,17 @@ Deno.test("verify_published escapes the package name in the sqlite3 query", asyn
   };
 
   await model.methods.verify_published.execute(
-    { packageName: "o'brien", _run: fakeRun as never },
+    { packageName: "o-brien", _run: fakeRun as never },
     context,
   );
 
   assertEquals(
     capturedArgs[1],
-    "select version from packages where name = 'o''brien';",
+    "select version from packages where name = 'o-brien';",
   );
+});
+
+Deno.test("model exposes the upgraded harness contract", () => {
+  assertEquals(model.version, "2026.11.10.1");
+  assertEquals(model.upgrades?.[0]?.toVersion, "2026.11.10.1");
 });

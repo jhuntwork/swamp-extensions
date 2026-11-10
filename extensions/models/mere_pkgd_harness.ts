@@ -1,14 +1,116 @@
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
+
+const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+const SCRATCH_MARKER = "swamp-mere-pkgd-harness-v1\n";
+const ARCHIVE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9+._-]*\.pkg\.tar\.zst$/;
+const AbsolutePathSchema = z.string().min(1).refine(
+  (value) => value.startsWith("/"),
+  "must be an absolute path",
+);
+const UrlSchema = z.string().url().max(2048).refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === "http:" || protocol === "https:";
+}, "must use http or https");
+const PackageNameSchema = z.string().min(1).max(256).regex(
+  /^[A-Za-z0-9][A-Za-z0-9+._-]*$/,
+  "must be a package name, not a path",
+);
+
+function scratchPath(scratchDir: string, name: string): string {
+  return `${scratchDir.replace(/\/+$/, "")}/${name}`;
+}
+
+function assertSafeScratchDir(scratchDir: string): string {
+  AbsolutePathSchema.parse(scratchDir);
+  const normalized = scratchDir.replace(/\/+$/, "") || "/";
+  if (
+    normalized === "/" ||
+    normalized === "/tmp" ||
+    normalized === "/var" ||
+    normalized === "/var/tmp" ||
+    normalized === "/home" ||
+    normalized === "/root"
+  ) {
+    throw new Error(
+      "scratchDir must be a dedicated child directory, not a shared filesystem root",
+    );
+  }
+  if (normalized.split("/").includes("..")) {
+    throw new Error("scratchDir must not contain '..' path components");
+  }
+  return normalized;
+}
+
+async function prepareScratchDir(scratchDir: string): Promise<string> {
+  const normalized = assertSafeScratchDir(scratchDir);
+  await Deno.mkdir(normalized, { recursive: true });
+  const markerPath = scratchPath(normalized, ".swamp-owner");
+  try {
+    const marker = await Deno.readTextFile(markerPath);
+    if (marker !== SCRATCH_MARKER) {
+      throw new Error(
+        `Refusing scratch directory without the expected ownership marker: ${normalized}`,
+      );
+    }
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    await Deno.writeTextFile(markerPath, SCRATCH_MARKER, { mode: 0o600 });
+  }
+  return normalized;
+}
+
+function validateArchiveName(name: string): void {
+  if (
+    !ARCHIVE_NAME_PATTERN.test(name) ||
+    name.includes("..") ||
+    name.includes("/") ||
+    name.includes("\\")
+  ) {
+    throw new Error(`Invalid package archive name: ${name}`);
+  }
+}
+
+function validateWorkspace(workspace: string): void {
+  AbsolutePathSchema.parse(workspace);
+  if (workspace.split("/").includes("..")) {
+    throw new Error(`Invalid build workspace: ${workspace}`);
+  }
+}
+
+async function terminateOwnedProcess(
+  instance: { pid: number; pkgdBinPath: string },
+): Promise<boolean> {
+  try {
+    const [actualPath, expectedPath] = await Promise.all([
+      Deno.realPath(`/proc/${instance.pid}/exe`),
+      Deno.realPath(instance.pkgdBinPath),
+    ]);
+    if (actualPath !== expectedPath) return false;
+    Deno.kill(instance.pid, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function displayArgs(args: string[]): string {
+  return args.map((arg) =>
+    /^Authorization: Bearer\s+/i.test(arg)
+      ? "Authorization: Bearer <redacted>"
+      : arg
+  ).join(" ");
+}
 
 const GlobalArgsSchema = z.object({
-  mereRepoPath: z.string().describe(
-    "Local git checkout of codeberg.org/merelinux/mere to build from",
+  mereRepoPath: z.string().min(1).describe(
+    "Absolute local git checkout of codeberg.org/merelinux/mere to build from",
   ),
-  pkgdRepoPath: z.string().describe(
-    "Local git checkout of codeberg.org/merelinux/pkgd to build from",
+  pkgdRepoPath: z.string().min(1).describe(
+    "Absolute local git checkout of codeberg.org/merelinux/pkgd to build from",
   ),
-  scratchDir: z.string().describe(
-    "Root scratch directory for this harness run — everything lives under here, nothing touches the real /mere",
+  scratchDir: z.string().min(1).describe(
+    "Dedicated absolute scratch directory for this harness run — everything lives under here, nothing touches the real /mere",
   ),
 });
 
@@ -20,12 +122,14 @@ const BuildSchema = z.object({
 const InstanceSchema = z.object({
   pid: z.number(),
   socketPath: z.string(),
+  scratchDir: z.string().optional(),
   mereRoot: z.string(),
   devRepoName: z.string(),
   outputDir: z.string(),
   keyDir: z.string(),
   publishToken: z.string().meta({ sensitive: true }),
   mereBinPath: z.string(),
+  pkgdBinPath: z.string().optional(),
 });
 
 const PublishResultSchema = z.object({
@@ -56,8 +160,57 @@ const HashSourceResultSchema = z.object({
   filename: z.string(),
 });
 
-/** Result of running a command: exit code plus captured stdout/stderr. */
+function sourceFilename(url: string): string {
+  const pathname = new URL(url).pathname;
+  const basename = pathname.split("/").pop() ?? "";
+  return basename.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) || "source";
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/** Result of running a command: exit code plus bounded captured stdout/stderr. */
 export type RunResult = { code: number; stdout: string; stderr: string };
+
+async function readBounded(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<{ text: string; truncated: boolean }> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let truncated = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    const remaining = maxBytes - length;
+    if (remaining > 0) {
+      const kept = value.subarray(0, Math.min(remaining, value.length));
+      chunks.push(kept);
+      length += kept.length;
+    }
+    if (value.length > remaining) truncated = true;
+  }
+
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const text = new TextDecoder().decode(bytes);
+  return { text: truncated ? `${text}\n... [truncated]` : text, truncated };
+}
 
 /** Runs a command and captures its outcome without throwing on a non-zero exit. */
 export async function run(
@@ -65,6 +218,7 @@ export async function run(
   args: string[],
   opts?: { cwd?: string; env?: Record<string, string> },
 ): Promise<RunResult> {
+  // swamp-quality-ignore deno-command: fixed argv boundary for local build and verification tools
   const command = new Deno.Command(cmd, {
     args,
     cwd: opts?.cwd,
@@ -72,11 +226,16 @@ export async function run(
     stdout: "piped",
     stderr: "piped",
   });
-  const output = await command.output();
+  const child = command.spawn();
+  const [stdout, stderr] = await Promise.all([
+    readBounded(child.stdout!, MAX_COMMAND_OUTPUT_BYTES),
+    readBounded(child.stderr!, MAX_COMMAND_OUTPUT_BYTES),
+  ]);
+  const status = await child.status;
   return {
-    code: output.code,
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
+    code: status.code,
+    stdout: stdout.text,
+    stderr: stderr.text,
   };
 }
 
@@ -89,7 +248,7 @@ export async function mustRun(
   const result = await run(cmd, args, opts);
   if (result.code !== 0) {
     throw new Error(
-      `${cmd} ${args.join(" ")} failed (exit ${result.code}): ${
+      `${cmd} ${displayArgs(args)} failed (exit ${result.code}): ${
         result.stderr || result.stdout
       }`,
     );
@@ -120,6 +279,8 @@ export function parseBuildOutput(
       `Could not find workspace in mere dev build output:\n${buildOutput}`,
     );
   }
+  const workspace = workspaceMatch[1];
+  validateWorkspace(workspace);
   const archiveNames = [
     ...buildOutput.matchAll(/output: (\S+\.pkg\.tar\.zst)/g),
   ].map((m) => m[1]);
@@ -128,12 +289,22 @@ export function parseBuildOutput(
       `Could not find any output archives in mere dev build output:\n${buildOutput}`,
     );
   }
-  return { workspace: workspaceMatch[1], archiveNames };
+  for (const archiveName of archiveNames) validateArchiveName(archiveName);
+  return { workspace, archiveNames };
 }
 
 /** Derives the bare package name from a canonical archive filename, e.g. `jq-1.8.1-4-x86_64-<hash>.pkg.tar.zst` -> `jq`. */
 export function packageNameFromArchive(archiveName: string): string {
-  return archiveName.split(/-\d/)[0];
+  validateArchiveName(archiveName);
+  const match = archiveName.match(
+    /^(.+)-\d[^-]*-\d+-[^-]+-[A-Za-z0-9]+\.pkg\.tar\.zst$/,
+  );
+  if (!match) {
+    throw new Error(
+      `Archive does not use the canonical package filename: ${archiveName}`,
+    );
+  }
+  return PackageNameSchema.parse(match[1]);
 }
 
 type Logger = {
@@ -191,7 +362,15 @@ export async function waitForPath(
  */
 export const model = {
   type: "@jeremy/mere-pkgd-harness",
-  version: "2026.07.19.1",
+  version: "2026.11.10.1",
+  upgrades: [{
+    toVersion: "2026.11.10.1",
+    description:
+      "Bound subprocess output and downloads, protect scratch cleanup, validate package paths, and redact publish credentials from command errors.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }],
   globalArguments: GlobalArgsSchema,
   resources: {
     "build": {
@@ -239,7 +418,7 @@ export const model = {
       description:
         "Download a source URL to a temp file and compute its blake3 hash via the mere binary",
       arguments: z.object({
-        url: z.string().describe("URL to download and hash"),
+        url: UrlSchema.describe("HTTP or HTTPS URL to download and hash"),
       }),
       execute: async (
         args: { url: string; _mustRun?: typeof mustRun },
@@ -258,6 +437,8 @@ export const model = {
       ) => {
         const doRun = args._mustRun ?? mustRun;
         const { mereRepoPath, scratchDir } = context.globalArgs;
+        const url = UrlSchema.parse(args.url);
+        const safeScratchDir = await prepareScratchDir(scratchDir);
 
         // Use pre-built mere if available, otherwise build path.
         const build = await context.readResource("build") as
@@ -266,14 +447,26 @@ export const model = {
         const mereBin = build?.mereBinPath ??
           `${mereRepoPath}/zig-out/bin/mere`;
 
-        // Derive filename from URL basename.
-        const filename = args.url.split("/").pop() ?? "source";
-        const downloadDir = `${scratchDir}/hash-downloads`;
+        // Derive a bounded, path-safe filename from the URL basename.
+        const filename = sourceFilename(url);
+        const downloadDir = scratchPath(safeScratchDir, "hash-downloads");
         await Deno.mkdir(downloadDir, { recursive: true });
         const destPath = `${downloadDir}/${filename}`;
 
-        context.logger.info("Downloading {url}", { url: args.url });
-        await doRun("curl", ["-sL", "-o", destPath, args.url]);
+        context.logger.info("Downloading {url}", { url });
+        await doRun("curl", [
+          "--fail",
+          "--location",
+          "--silent",
+          "--show-error",
+          "--proto",
+          "=http,https",
+          "--max-filesize",
+          String(MAX_SOURCE_BYTES),
+          "--output",
+          destPath,
+          url,
+        ]);
 
         context.logger.info("Computing blake3 hash for {filename}", {
           filename,
@@ -283,10 +476,10 @@ export const model = {
 
         const handle = await context.writeResource(
           "hash-source-result",
-          `hash-${filename}`,
-          { url: args.url, blake3, filename },
+          `hash-${await sha256Hex(url)}`,
+          { url, blake3, filename },
         );
-        context.logger.info("Hash computed", { url: args.url, blake3 });
+        context.logger.info("Hash computed", { url, blake3 });
         return { dataHandles: [handle] };
       },
     },
@@ -308,6 +501,9 @@ export const model = {
         },
       ) => {
         const { mereRepoPath, pkgdRepoPath, scratchDir } = context.globalArgs;
+        AbsolutePathSchema.parse(mereRepoPath);
+        AbsolutePathSchema.parse(pkgdRepoPath);
+        const safeScratchDir = await prepareScratchDir(scratchDir);
         const doRun = args._mustRun ?? mustRun;
 
         context.logger.info("Building mere from {path}", {
@@ -319,7 +515,10 @@ export const model = {
         context.logger.info("Building pkgd from {path}", {
           path: pkgdRepoPath,
         });
-        const pkgdBinPath = `${scratchDir}/pkgd`;
+        const pkgdBinPath = scratchPath(safeScratchDir, "bin/pkgd");
+        await Deno.mkdir(scratchPath(safeScratchDir, "bin"), {
+          recursive: true,
+        });
         await doRun("go", ["build", "-o", pkgdBinPath, "./cmd/pkgd"], {
           cwd: pkgdRepoPath,
         });
@@ -338,7 +537,7 @@ export const model = {
         "Generate a throwaway signing key and start pkgd as a background process against fresh scratch directories",
       arguments: z.object({}),
       execute: async (
-        _args: Record<string, never>,
+        args: Record<string, never> & { _mustRun?: typeof mustRun },
         context: {
           globalArgs: z.infer<typeof GlobalArgsSchema>;
           logger: Logger;
@@ -353,6 +552,8 @@ export const model = {
         },
       ) => {
         const { scratchDir } = context.globalArgs;
+        const safeScratchDir = await prepareScratchDir(scratchDir);
+        const doRun = args._mustRun ?? mustRun;
         const build = await context.readResource("build") as
           | z.infer<typeof BuildSchema>
           | null;
@@ -360,11 +561,21 @@ export const model = {
           throw new Error("No build found — run the build method first");
         }
 
-        const keyDir = `${scratchDir}/keys`;
-        const mereRoot = `${scratchDir}/mere-root`;
-        const outputDir = `${scratchDir}/output`;
-        const tempDir = `${scratchDir}/tmp`;
-        const socketPath = `${scratchDir}/pkgd.sock`;
+        const previous = await context.readResource("instance") as
+          | { pid: number; pkgdBinPath?: string }
+          | null;
+        if (previous?.pkgdBinPath) {
+          await terminateOwnedProcess({
+            pid: previous.pid,
+            pkgdBinPath: previous.pkgdBinPath,
+          });
+        }
+
+        const keyDir = scratchPath(safeScratchDir, "keys");
+        const mereRoot = scratchPath(safeScratchDir, "mere-root");
+        const outputDir = scratchPath(safeScratchDir, "output");
+        const tempDir = scratchPath(safeScratchDir, "tmp");
+        const socketPath = scratchPath(safeScratchDir, "pkgd.sock");
         const devRepoName = "harness";
         const publishToken = crypto.randomUUID();
 
@@ -374,9 +585,17 @@ export const model = {
         // itself, which also holds the pkgd binary the build step just
         // placed there.
         context.logger.info("Resetting scratch directories under {dir}", {
-          dir: scratchDir,
+          dir: safeScratchDir,
         });
-        for (const dir of [keyDir, mereRoot, outputDir, tempDir]) {
+        for (
+          const dir of [
+            keyDir,
+            mereRoot,
+            outputDir,
+            tempDir,
+            scratchPath(safeScratchDir, "hash-downloads"),
+          ]
+        ) {
           await Deno.remove(dir, { recursive: true }).catch(() => {});
         }
         await Deno.remove(socketPath).catch(() => {});
@@ -390,7 +609,7 @@ export const model = {
         // pre-existing empty directory is treated as an invalid repo.
 
         context.logger.info("Generating throwaway signing key");
-        await mustRun(build.mereBinPath, [
+        await doRun(build.mereBinPath, [
           "dev",
           "key",
           "generate",
@@ -399,6 +618,7 @@ export const model = {
         ]);
 
         context.logger.info("Starting pkgd", { bin: build.pkgdBinPath });
+        // swamp-quality-ignore deno-command: pkgd is the process under test
         const command = new Deno.Command(build.pkgdBinPath, {
           env: {
             PKGD_MERE_ROOT: mereRoot,
@@ -432,12 +652,14 @@ export const model = {
         const handle = await context.writeResource("instance", "instance", {
           pid: child.pid,
           socketPath,
+          scratchDir: safeScratchDir,
           mereRoot,
           devRepoName,
           outputDir,
           keyDir,
           publishToken,
           mereBinPath: build.mereBinPath,
+          pkgdBinPath: build.pkgdBinPath,
         });
         context.logger.info("pkgd started", {
           pid: child.pid,
@@ -451,8 +673,8 @@ export const model = {
       description:
         "Build a real signed test package via `mere dev build` and POST it to the running pkgd instance's /publish",
       arguments: z.object({
-        recipePath: z.string().describe(
-          "Path to a recipe.kdl to build, e.g. a small recipe from the recipes checkout",
+        recipePath: AbsolutePathSchema.describe(
+          "Absolute path to a recipe.kdl to build",
         ),
       }),
       execute: async (
@@ -470,6 +692,7 @@ export const model = {
         },
       ) => {
         const doRun = args._mustRun ?? mustRun;
+        const recipePath = AbsolutePathSchema.parse(args.recipePath);
         const instance = await context.readResource("instance") as
           | z.infer<typeof InstanceSchema>
           | null;
@@ -480,24 +703,41 @@ export const model = {
         }
 
         context.logger.info("Building test package from {recipe}", {
-          recipe: args.recipePath,
+          recipe: recipePath,
         });
         const buildOutput = await doRun(instance.mereBinPath, [
           "dev",
           "build",
-          args.recipePath,
+          recipePath,
         ]);
         const { workspace, archiveNames } = parseBuildOutput(buildOutput);
         const archivePaths = archiveNames.map((name) =>
           `${workspace}/pkg/${name}`
         );
 
+        const scratchDir = assertSafeScratchDir(
+          instance.scratchDir ??
+            instance.socketPath.replace(/\/pkgd\.sock$/, ""),
+        );
+        const authConfigPath = scratchPath(
+          scratchDir,
+          `.curl-${crypto.randomUUID()}.conf`,
+        );
+        const tokenForConfig = instance.publishToken.replace(/[\\"\r\n]/g, "");
+        await Deno.writeTextFile(
+          authConfigPath,
+          `header = "Authorization: Bearer ${tokenForConfig}"\n`,
+          { mode: 0o600 },
+        );
+
         const curlArgs = [
-          "-sS",
+          "--fail",
+          "--silent",
+          "--show-error",
           "--unix-socket",
           instance.socketPath,
-          "-H",
-          `Authorization: Bearer ${instance.publishToken}`,
+          "--config",
+          authConfigPath,
         ];
         for (const path of archivePaths) {
           curlArgs.push("-F", `package=@${path}`);
@@ -507,7 +747,12 @@ export const model = {
         context.logger.info("Publishing {count} archive(s) to pkgd", {
           count: archivePaths.length,
         });
-        const responseBody = await doRun("curl", curlArgs);
+        let responseBody: string;
+        try {
+          responseBody = await doRun("curl", curlArgs);
+        } finally {
+          await Deno.remove(authConfigPath).catch(() => {});
+        }
         let parsed: { success?: boolean };
         try {
           parsed = JSON.parse(responseBody);
@@ -526,7 +771,7 @@ export const model = {
           `publish-${packageName}`,
           {
             packageName,
-            recipePath: args.recipePath,
+            recipePath,
             archivePaths,
             responseBody,
           },
@@ -540,7 +785,7 @@ export const model = {
       description:
         "Confirm a package landed in the published repo.db (queried directly, sidestepping any HTTP-layer caching)",
       arguments: z.object({
-        packageName: z.string(),
+        packageName: PackageNameSchema,
       }),
       execute: async (
         args: { packageName: string; _run?: typeof run },
@@ -566,14 +811,15 @@ export const model = {
           );
         }
 
+        const packageName = PackageNameSchema.parse(args.packageName);
         context.logger.info("Verifying {packageName} in published repo.db", {
-          packageName: args.packageName,
+          packageName,
         });
         const repoDbPath = `${instance.outputDir}/repo.db`;
         const result = await doRun("sqlite3", [
           repoDbPath,
           `select version from packages where name = '${
-            escapeSqlString(args.packageName)
+            escapeSqlString(packageName)
           }';`,
         ]);
         // A non-zero exit is a real tool/query failure (missing db, bad
@@ -591,15 +837,15 @@ export const model = {
 
         const handle = await context.writeResource(
           "verify-result",
-          `verify-${args.packageName}`,
+          `verify-${packageName}`,
           {
-            packageName: args.packageName,
+            packageName,
             foundInRepoDb: version !== "",
             version: version !== "" ? version : null,
           },
         );
         context.logger.info("Verification complete", {
-          packageName: args.packageName,
+          packageName,
           foundInRepoDb: version !== "",
         });
         return { dataHandles: [handle] };
@@ -610,7 +856,7 @@ export const model = {
       description:
         "Verify that a package's properties column in repo.db contains the expected recipe metadata (description, url, licenses, source_urls)",
       arguments: z.object({
-        packageName: z.string(),
+        packageName: PackageNameSchema,
       }),
       execute: async (
         args: { packageName: string; _run?: typeof run },
@@ -636,15 +882,16 @@ export const model = {
           );
         }
 
+        const packageName = PackageNameSchema.parse(args.packageName);
         context.logger.info(
           "Verifying properties for {packageName} in published repo.db",
-          { packageName: args.packageName },
+          { packageName },
         );
         const repoDbPath = `${instance.outputDir}/repo.db`;
         const result = await doRun("sqlite3", [
           repoDbPath,
           `select properties from packages where name = '${
-            escapeSqlString(args.packageName)
+            escapeSqlString(packageName)
           }' order by release desc limit 1;`,
         ]);
         if (result.code !== 0) {
@@ -663,12 +910,26 @@ export const model = {
 
         if (raw !== "") {
           try {
-            const parsed = JSON.parse(raw);
+            const parsed: unknown = JSON.parse(raw);
+            if (typeof parsed !== "object" || parsed === null) {
+              throw new Error("properties is not an object");
+            }
+            const properties = parsed as Record<string, unknown>;
             hasProperties = true;
-            description = parsed.description ?? null;
-            url = parsed.url ?? null;
-            licenses = parsed.licenses ?? null;
-            sourceUrls = parsed.source_urls ?? null;
+            description = typeof properties.description === "string"
+              ? properties.description
+              : null;
+            url = typeof properties.url === "string" ? properties.url : null;
+            licenses = Array.isArray(properties.licenses) &&
+                properties.licenses.every((value) => typeof value === "string")
+              ? properties.licenses as string[]
+              : null;
+            sourceUrls = Array.isArray(properties.source_urls) &&
+                properties.source_urls.every((value) =>
+                  typeof value === "string"
+                )
+              ? properties.source_urls as string[]
+              : null;
           } catch {
             context.logger.info(
               "Properties column is not valid JSON: {raw}",
@@ -679,9 +940,9 @@ export const model = {
 
         const handle = await context.writeResource(
           "verify-properties-result",
-          `verify-props-${args.packageName}`,
+          `verify-props-${packageName}`,
           {
-            packageName: args.packageName,
+            packageName,
             hasProperties,
             description,
             url,
@@ -690,7 +951,7 @@ export const model = {
           },
         );
         context.logger.info("Properties verification complete", {
-          packageName: args.packageName,
+          packageName,
           hasProperties,
           description: description ?? "(none)",
           url: url ?? "(none)",
@@ -701,7 +962,7 @@ export const model = {
 
     stop: {
       description:
-        "Kill the running pkgd instance and remove all scratch directories",
+        "Stop the running pkgd instance and remove only this harness's owned scratch entries",
       arguments: z.object({}),
       execute: async (
         _args: Record<string, never>,
@@ -713,21 +974,41 @@ export const model = {
           ) => Promise<Record<string, unknown> | null>;
         },
       ) => {
+        const safeScratchDir = await prepareScratchDir(
+          context.globalArgs.scratchDir,
+        );
         const instance = await context.readResource("instance") as
           | z.infer<typeof InstanceSchema>
           | null;
-        if (instance) {
+        if (instance?.pkgdBinPath) {
           context.logger.info("Stopping pkgd", { pid: instance.pid });
-          try {
-            Deno.kill(instance.pid, "SIGTERM");
-          } catch {
-            // Already gone — fine.
+          const stopped = await terminateOwnedProcess({
+            pid: instance.pid,
+            pkgdBinPath: instance.pkgdBinPath,
+          });
+          if (!stopped) {
+            context.logger.info("Did not stop an unverified process", {
+              pid: instance.pid,
+            });
           }
         }
-        await Deno.remove(context.globalArgs.scratchDir, { recursive: true })
-          .catch(() => {});
-        context.logger.info("Scratch directories removed", {
-          scratchDir: context.globalArgs.scratchDir,
+        for (
+          const path of [
+            "keys",
+            "mere-root",
+            "output",
+            "tmp",
+            "hash-downloads",
+            "pkgd.sock",
+            "bin/pkgd",
+          ]
+        ) {
+          await Deno.remove(scratchPath(safeScratchDir, path), {
+            recursive: true,
+          }).catch(() => {});
+        }
+        context.logger.info("Owned scratch entries removed", {
+          scratchDir: safeScratchDir,
         });
         return { dataHandles: [] };
       },
