@@ -25,7 +25,7 @@ type Context = {
 /** Narrow GitHub.com same-repository draft-PR model. It never merges or releases. */
 export const model = {
   type: "@jeremy/github-draft-pr",
-  version: "2026.08.18.1",
+  version: "2026.11.10.1",
   globalArguments: Globals,
   resources: {
     preflight: {

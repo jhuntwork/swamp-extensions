@@ -10,7 +10,7 @@ const config = {
 };
 const sha = (letter: string) => letter.repeat(40);
 
-async function packet() {
+async function packet(body = "body") {
   return await createPacket({
     targetRepository: "owner/repository",
     sourceRepository: "owner/repository",
@@ -24,7 +24,7 @@ async function packet() {
       evidenceRef: "evidence://test",
       detail: "",
     }],
-    submission: { title: "test", body: "body", draft: true },
+    submission: { title: "test", body, draft: true },
   });
 }
 
@@ -53,6 +53,28 @@ Deno.test("verifyDraft accepts an exact draft PR readback", async () => {
       draft: true,
       title: "test",
       body: "body",
+      head: { ref: "feature/change", sha: sha("b") },
+      base: { ref: "main", sha: sha("a") },
+    }),
+  );
+  assertEquals(result.verified, true);
+});
+
+Deno.test("verifyDraft treats GitHub's null empty body as an empty packet body", async () => {
+  const p = await packet("");
+  const result = await verifyDraft(
+    config,
+    p,
+    {
+      number: 9,
+      url: "https://github.com/owner/repository/pull/9",
+      created: true,
+    },
+    fetchPr({
+      html_url: "https://github.com/owner/repository/pull/9",
+      draft: true,
+      title: "test",
+      body: null,
       head: { ref: "feature/change", sha: sha("b") },
       base: { ref: "main", sha: sha("a") },
     }),
