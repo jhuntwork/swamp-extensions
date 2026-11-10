@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1.0.19";
-import { createPacket } from "../change-packet/mod.ts";
+import { createPacket } from "./test_packet.ts";
 import { applyDraft } from "./apply.ts";
 import { planDraft } from "./plan.ts";
 

@@ -1,5 +1,5 @@
 import { assertRejects } from "jsr:@std/assert@1.0.19";
-import { createPacket } from "../change-packet/mod.ts";
+import { createPacket } from "./test_packet.ts";
 import { requireDraftPacket } from "./packet.ts";
 
 const input = {

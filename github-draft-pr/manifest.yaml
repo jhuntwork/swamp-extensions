@@ -29,6 +29,7 @@ additionalFiles:
   - plan_test.ts
   - apply_test.ts
   - verify_test.ts
+  - test_packet.ts
   - mod_test.ts
   - LICENSE.txt
 labels:
