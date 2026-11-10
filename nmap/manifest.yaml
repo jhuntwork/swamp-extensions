@@ -1,0 +1,39 @@
+# Read-only; regenerate via 'swamp extension pull'
+manifestVersion: 1
+name: '@jeremy/nmap'
+version: 2026.11.10.1
+description: >
+  Network scanning with nmap, stored as structured data for change tracking over
+  time. Produces host and port resources keyed by IP and port number, so
+  consecutive scans naturally version and diff via the swamp data model.
+
+  Two methods: `discover` runs a ping sweep to find live hosts on a subnet;
+  `scan` performs TCP port and service detection on one or more targets. Both
+  use nmap's XML output (-oX) for reliable parsing.
+
+  Privileged mode is opt-in: with `privileged=true`, uses SYN scan, ARP
+  discovery, and requires nmap to have CAP_NET_RAW or be run as root. The
+  default is unprivileged TCP-connect scanning that works anywhere nmap runs.
+repository: 'https://codeberg.org/jhuntwork/swamp-extensions'
+license: MIT
+paths:
+  base: manifest
+models:
+  - mod.ts
+workflows: []
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+  - mod_test.ts
+labels:
+  - nmap
+  - network
+  - scanning
+  - discovery
+  - inventory
+  - security
+dependencies: []
