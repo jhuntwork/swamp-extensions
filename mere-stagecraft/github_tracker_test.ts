@@ -653,6 +653,100 @@ Deno.test("pause_item writes the pause then releases the held lease, and a retry
   assertEquals(store.get("wip-lease")!.epoch, 3);
 });
 
+const queueEntry = (
+  item: string,
+  stableId: string,
+  createdAt: string,
+  computed: string,
+) => ({ item, stableId, createdAt, computed }) as never;
+
+Deno.test("enqueue is idempotent and dequeue of an absent item changes nothing", () => {
+  const a = queueEntry("a", "x.y.1", "2026-01-01", "P2");
+  const queued = testing.decideEnqueue([], a)!;
+  assertEquals(queued.length, 1);
+  assertEquals(testing.decideEnqueue(queued, a), null);
+  assertEquals(testing.decideDequeue(queued, "missing"), null);
+  assertEquals(testing.decideDequeue(queued, "a")!.length, 0);
+});
+
+Deno.test("next_ready orders by priority, then age, then stable ID, and is empty-safe", () => {
+  assertEquals(testing.nextReady([], []), null);
+  const queue = [
+    queueEntry("a", "x.y.9", "2026-01-01", "P2"),
+    queueEntry("b", "x.y.3", "2026-01-03", "P1"),
+    queueEntry("c", "x.y.2", "2026-01-02", "P1"),
+    queueEntry("d", "x.y.1", "2026-01-02", "P1"),
+  ];
+  assertEquals(testing.nextReady(queue, [])!.entry.item, "d");
+});
+
+Deno.test("an override set after enqueue reorders the queue", () => {
+  const queue = [
+    queueEntry("a", "x.y.1", "2026-01-01", "P3"),
+    queueEntry("b", "x.y.2", "2026-01-02", "P1"),
+  ];
+  assertEquals(testing.nextReady(queue, [])!.entry.item, "b");
+  const journal = [
+    { item: "a", by: "j", reason: "r", from: "P3", to: "P0", at: "t" },
+  ] as never;
+  const picked = testing.nextReady(queue, journal)!;
+  assertEquals(picked.entry.item, "a");
+  assertEquals(picked.priority, "P0");
+});
+
+Deno.test("a released or dequeued item is not returned again, and a resumed one is", () => {
+  const a = queueEntry("a", "x.y.1", "2026-01-01", "P2");
+  let queue = testing.decideEnqueue([], a)!;
+  assertEquals(testing.nextReady(queue, [])!.entry.item, "a");
+  // Scheduled: acquired, then dequeued.
+  queue = testing.decideDequeue(queue, "a")!;
+  assertEquals(testing.nextReady(queue, []), null);
+  // Paused, then resumed as ready: the resume path enqueues it again.
+  queue = testing.decideEnqueue(queue, a)!;
+  assertEquals(testing.nextReady(queue, [])!.entry.item, "a");
+});
+
+Deno.test("next_ready and the queue methods use the declared resources and next_ready writes no queue", async () => {
+  const find = (name: string) =>
+    extension.methods.find((entry) => name in entry) as unknown as Record<
+      string,
+      {
+        execute: (
+          args: Resource,
+          context: TestContext,
+        ) => Promise<{ dataHandles: { name: string }[] }>;
+      }
+    >;
+  const writes: { spec: string; name: string; data: unknown }[] = [];
+  const store = new Map<string, Resource>();
+  const context: TestContext = {
+    readResource: (name) => Promise.resolve(store.get(name) ?? null),
+    writeResource: (spec, name, data) => {
+      writes.push({ spec, name, data });
+      store.set(name, data as Resource);
+      return Promise.resolve({ name });
+    },
+    logger: { warning: () => {} },
+  };
+  await find("enqueue_item").enqueue_item.execute({
+    item: "a",
+    stableId: "x.y.1",
+    createdAt: "2026-01-01",
+    facts: { reproducibleBug: true },
+  }, context);
+  assertEquals(writes[0].spec, "readyQueue");
+  assertEquals(
+    (store.get("ready-queue")!.entries as Resource[])[0].computed,
+    "P2",
+  );
+  const before = writes.length;
+  await find("next_ready").next_ready.execute({}, context);
+  assertEquals(writes.length, before + 1);
+  assertEquals(writes[before].spec, "nextReady");
+  assertEquals((store.get("next-ready") as Resource).item, "a");
+  assertEquals((store.get("ready-queue")!.entries as unknown[]).length, 1);
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
@@ -663,9 +757,11 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
     "githubRelations",
     "intakeCheck",
     "intakeState",
+    "nextReady",
     "pauseRecord",
     "preflight",
     "priorityOverrides",
+    "readyQueue",
     "wipLease",
   ]);
   assertEquals(
@@ -675,8 +771,11 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
       "check_intake",
       "check_lease",
       "configure",
+      "dequeue_item",
       "describe",
+      "enqueue_item",
       "interrupt_lease",
+      "next_ready",
       "operate",
       "pause_item",
       "preflight",
