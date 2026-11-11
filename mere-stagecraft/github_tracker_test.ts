@@ -748,6 +748,83 @@ Deno.test("next_ready and the queue methods use the declared resources and next_
   assertEquals((store.get("ready-queue")!.entries as unknown[]).length, 1);
 });
 
+Deno.test("enumeration reports a status conflict and does not fail the page", () => {
+  const ok = { state: "OPEN", labels: [] } as never;
+  const bad = { state: "OPEN", labels: [{ name: "status:done" }] } as never;
+  assertEquals(testing.statusOrConflict(ok), { id: "open", name: "open" });
+  const conflict = testing.statusOrConflict(bad);
+  assertEquals(conflict.id, "conflict");
+  assertEquals(String(conflict.conflict).startsWith("status-conflict"), true);
+  // fetch and set_status keep the strict decoder.
+  let thrown: unknown;
+  try {
+    testing.statusName(bad);
+  } catch (error) {
+    thrown = error;
+  }
+  assertExists(thrown);
+});
+
+Deno.test("enumerate_issues returns every issue when one has a conflicting status", async () => {
+  const node = (id: string, labels: string[], state: string) => ({
+    id,
+    number: Number(id.slice(2)),
+    title: id,
+    body: "",
+    state,
+    url: "https://example.test/" + id,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-02T00:00:00Z",
+    labels: { nodes: labels.map((name) => ({ name })) },
+  });
+  testing.setGhForTest(() =>
+    Promise.resolve({
+      data: {
+        repository: {
+          issues: {
+            nodes: [
+              node("I_1", [], "OPEN"),
+              node("I_2", ["status:done"], "OPEN"),
+              node("I_3", [], "CLOSED"),
+            ],
+            pageInfo: { endCursor: "c", hasNextPage: false },
+          },
+        },
+      },
+    })
+  );
+  try {
+    const writes: Resource[] = [];
+    await operateExecute()(
+      {
+        operation: "enumerate_issues",
+        request: JSON.stringify({ repo: "acme/repo", limit: 5 }),
+        answer: "a",
+        run: "r",
+      },
+      {
+        readResource: () => Promise.resolve(null),
+        writeResource: (_spec, _name, data) => {
+          writes.push(data as Resource);
+          return Promise.resolve({ name: "a" });
+        },
+        logger: { warning: () => {} },
+      },
+    );
+    assertEquals(writes[0].ok, true);
+    const issues = (writes[0].result as Resource).issues as Resource[];
+    assertEquals(issues.length, 3);
+    assertEquals(issues.map((i) => (i.status as Resource).id), [
+      "open",
+      "conflict",
+      "closed",
+    ]);
+    assertEquals(issues[1].nodeId, "I_2");
+  } finally {
+    testing.resetGhForTest();
+  }
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
