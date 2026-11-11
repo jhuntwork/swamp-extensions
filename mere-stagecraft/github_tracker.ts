@@ -1035,11 +1035,12 @@ export const extension = {
         const name = `intake-${encodeURIComponent(args.repo)}`;
         const stored = await context.readResource(name);
         const decision = decideIntakePromotion(stored, args);
-        if (decision.kind === "noop") return { dataHandles: [{ name }] };
+        // A redelivered page changes nothing. Rewrite the stored state as is so
+        // the runtime gets a real resource handle rather than a bare name.
         const handle = await context.writeResource(
           "intakeState",
           name,
-          decision.state,
+          decision.kind === "noop" ? stored : decision.state,
         );
         return { dataHandles: [handle] };
       },

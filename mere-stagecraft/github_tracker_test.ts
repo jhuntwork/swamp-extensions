@@ -251,6 +251,46 @@ Deno.test("intake promotion deduplicates links by immutable node ID", () => {
   assertEquals(links[0].key, "new");
 });
 
+Deno.test("promote_intake returns a written handle when a page is redelivered", async () => {
+  const stored = {
+    repo: "a/b",
+    after: "C1",
+    emitted: ["I_1"],
+    links: [{ stableId: "a.b.1", nodeId: "I_1", key: "k1" }],
+  };
+  const writes: { name: string; data: unknown }[] = [];
+  const method = extension.methods.find((entry) =>
+    "promote_intake" in entry
+  ) as unknown as {
+    promote_intake: {
+      execute: (
+        args: Resource,
+        context: TestContext,
+      ) => Promise<{ dataHandles: { name: string }[] }>;
+    };
+  };
+  const result = await method.promote_intake.execute(
+    {
+      repo: "a/b",
+      expectedAfter: null,
+      nextAfter: "C1",
+      emitted: ["I_1"],
+      links: stored.links,
+    },
+    {
+      readResource: () => Promise.resolve(stored),
+      writeResource: (_spec, name, data) => {
+        writes.push({ name, data });
+        return Promise.resolve({ name });
+      },
+      logger: { warning: () => {} },
+    },
+  );
+  assertEquals(writes.length, 1);
+  assertEquals(writes[0].data, stored);
+  assertEquals(result.dataHandles.length, 1);
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
