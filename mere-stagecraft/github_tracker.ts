@@ -829,7 +829,10 @@ export const extension = {
         context: Context,
       ) => {
         const existing = await context.readResource(args.answer);
-        if (existing) {
+        // A successful answer is an idempotency receipt. A failed upstream
+        // request is not: retaining it would make a transient GitHub failure
+        // permanently unretryable under the same publisher delivery key.
+        if (existing?.ok === true) {
           return await existingAnswer(context, args.answer, existing);
         }
         let answer: Resource;

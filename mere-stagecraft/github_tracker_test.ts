@@ -68,6 +68,38 @@ Deno.test("operate is idempotent when an answer already exists", async () => {
   assertEquals(writes, [{ name: "answer-1", data: existing }]);
 });
 
+Deno.test("operate retries a failed answer instead of treating it as a receipt", async () => {
+  const failed: Resource = {
+    operation: "fetch_issue",
+    run: "run-1",
+    ok: false,
+    kind: "upstream",
+    result: null,
+  };
+  const writes: unknown[] = [];
+  await operateExecute()(
+    {
+      operation: "fetch_issue",
+      request: "{}",
+      answer: "answer-retry",
+      run: "run-2",
+    },
+    {
+      readResource: () => Promise.resolve(failed),
+      writeResource: (_spec, name, data) => {
+        writes.push({ name, data });
+        return Promise.resolve({ name });
+      },
+      logger: { warning: () => {} },
+    },
+  );
+
+  assertEquals(writes.length, 1);
+  assertEquals((writes[0] as Resource).name, "answer-retry");
+  assertEquals(((writes[0] as Resource).data as Resource).run, "run-2");
+  assertEquals(((writes[0] as Resource).data as Resource).ok, false);
+});
+
 Deno.test("operate records invalid requests without throwing", async () => {
   let written: Resource | undefined;
   const result = await operateExecute()(
