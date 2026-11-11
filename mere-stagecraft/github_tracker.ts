@@ -704,6 +704,15 @@ async function operateOne(
           old,
         ]);
       }
+      if ((issue.state || "").toUpperCase() !== desiredState) {
+        await gh([
+          "issue",
+          desiredState === "OPEN" ? "reopen" : "close",
+          String(number),
+          "--repo",
+          repo,
+        ]);
+      }
       if (label !== undefined) {
         await ensureStatusLabel(repo, label);
         await gh([
@@ -714,15 +723,6 @@ async function operateOne(
           repo,
           "--add-label",
           label,
-        ]);
-      }
-      if ((issue.state || "").toUpperCase() !== desiredState) {
-        await gh([
-          "issue",
-          desiredState === "OPEN" ? "reopen" : "close",
-          String(number),
-          "--repo",
-          repo,
         ]);
       }
       return {
