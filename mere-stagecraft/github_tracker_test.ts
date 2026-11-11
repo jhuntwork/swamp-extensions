@@ -548,6 +548,111 @@ Deno.test("delivery units reject duplicates, unknown dependencies and cycles", (
   }
 });
 
+Deno.test("an override's old value comes from the journal, not the caller", () => {
+  const first = testing.decideOverride([], {
+    item: "i1",
+    by: "jeremy",
+    reason: "urgent",
+    computed: "P2",
+    to: "P0",
+  }, "t1");
+  assertEquals(first.from, "P2");
+  assertEquals(first.to, "P0");
+
+  const second = testing.decideOverride([first], {
+    item: "i1",
+    by: "jeremy",
+    reason: "calmer",
+    computed: "P2",
+    to: "P3",
+  }, "t2");
+  assertEquals(second.from, "P0");
+
+  let thrown: unknown;
+  try {
+    testing.decideOverride([first], {
+      item: "i1",
+      by: "jeremy",
+      reason: "same",
+      computed: "P2",
+      to: "P0",
+    }, "t3");
+  } catch (error) {
+    thrown = error;
+  }
+  assertExists(thrown);
+  assertEquals(String(thrown).includes("override-noop"), true);
+});
+
+Deno.test("pausing the lease holder releases the lease and keeps the epoch", () => {
+  const held = { epoch: 7, holder: "item-a", acquiredAt: "t", reason: null };
+  const released = testing.releaseLeaseForPause(held, "item-a");
+  assertExists(released);
+  assertEquals(released!.holder, null);
+  assertEquals(released!.epoch, 7);
+  assertEquals(released!.reason, "interrupted: paused item-a");
+  assertEquals(testing.releaseLeaseForPause(held, "item-b"), null);
+  assertEquals(testing.releaseLeaseForPause(null, "item-a"), null);
+});
+
+Deno.test("pause_item writes the pause then releases the held lease, and a retry repairs a failed release", async () => {
+  const method = extension.methods.find((entry) =>
+    "pause_item" in entry
+  ) as unknown as {
+    pause_item: {
+      execute: (
+        args: Resource,
+        context: TestContext,
+      ) => Promise<{ dataHandles: { name: string }[] }>;
+    };
+  };
+  const args = {
+    item: "item-a",
+    pausedBy: "jeremy",
+    reason: "why",
+    priorState: "in-progress",
+  };
+  const store = new Map<string, Resource>([
+    ["wip-lease", {
+      epoch: 3,
+      holder: "item-a",
+      acquiredAt: "t",
+      reason: null,
+    }],
+  ]);
+  let failLeaseWrite = true;
+  const context: TestContext = {
+    readResource: (name) => Promise.resolve(store.get(name) ?? null),
+    writeResource: (_spec, name, data) => {
+      if (name === "wip-lease" && failLeaseWrite) {
+        return Promise.reject(new Error("disk full"));
+      }
+      store.set(name, data as Resource);
+      return Promise.resolve({ name });
+    },
+    logger: { warning: () => {} },
+  };
+
+  let thrown: unknown;
+  try {
+    await method.pause_item.execute(args, context);
+  } catch (error) {
+    thrown = error;
+  }
+  assertExists(thrown);
+  // The item is paused but the lease is still held: the WIP limit is kept.
+  assertExists(store.get("pause-item-a"));
+  assertEquals(store.get("wip-lease")!.holder, "item-a");
+
+  const pauseId = store.get("pause-item-a")!.id;
+  failLeaseWrite = false;
+  await method.pause_item.execute(args, context);
+  // The retry did not create a second pause and it released the lease.
+  assertEquals(store.get("pause-item-a")!.id, pauseId);
+  assertEquals(store.get("wip-lease")!.holder, null);
+  assertEquals(store.get("wip-lease")!.epoch, 3);
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
