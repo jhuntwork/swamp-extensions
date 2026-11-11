@@ -315,6 +315,35 @@ Deno.test("intake check classifies fresh, committed and stale pages without writ
   assertEquals(String(thrown).includes("checkpoint-conflict"), true);
 });
 
+Deno.test("check_intake writes its result under a fixed name", async () => {
+  const writes: { spec: string; name: string; data: unknown }[] = [];
+  const method = extension.methods.find((entry) =>
+    "check_intake" in entry
+  ) as unknown as {
+    check_intake: {
+      execute: (
+        args: Resource,
+        context: TestContext,
+      ) => Promise<{ dataHandles: { name: string }[] }>;
+    };
+  };
+  await method.check_intake.execute(
+    { repo: "a/b", expectedAfter: null, nextAfter: "C1" },
+    {
+      readResource: () => Promise.resolve(null),
+      writeResource: (spec, name, data) => {
+        writes.push({ spec, name, data });
+        return Promise.resolve({ name });
+      },
+      logger: { warning: () => {} },
+    },
+  );
+  assertEquals(writes.length, 1);
+  assertEquals(writes[0].spec, "intakeCheck");
+  assertEquals(writes[0].name, "intake-check");
+  assertEquals((writes[0].data as Resource).status, "fresh");
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [

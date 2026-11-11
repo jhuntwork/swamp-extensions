@@ -100,3 +100,7 @@ reports `fresh` when the stored checkpoint is the page's predecessor and
 `committed` when the page already landed, and fails with `checkpoint-conflict`
 for a stale page. This keeps a stale or redelivered page from writing ticket
 reservations that the later compare-and-set cannot take back.
+
+The result is written to `intake-check`, a fixed name, and carries the `repo` it
+was computed for. Read it immediately after the call: a later call overwrites
+it.

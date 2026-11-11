@@ -1066,7 +1066,9 @@ export const extension = {
         const status = checkIntakePage(stored, args);
         const handle = await context.writeResource(
           "intakeCheck",
-          `intake-check-${encodeURIComponent(args.repo)}`,
+          // A fixed name, so a workflow can read the result without having to
+          // build a repo-specific name, which its expression language cannot.
+          "intake-check",
           { repo: args.repo, status, nextAfter: args.nextAfter },
         );
         return { dataHandles: [handle] };
