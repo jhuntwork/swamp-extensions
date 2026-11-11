@@ -221,7 +221,37 @@ function decideIntakePromotion(
   };
 }
 
+type IntakeCheck = "fresh" | "committed";
+
+/**
+ * Read-only counterpart of decideIntakePromotion. "fresh" means the stored
+ * checkpoint is this page's predecessor, so its issues may be claimed.
+ * "committed" means the page already landed, so nothing is claimed again. Any
+ * other stored checkpoint is a stale page and is rejected before a claim can
+ * write a reservation for it.
+ */
+function checkIntakePage(
+  stored: Resource | null,
+  args: { expectedAfter: string | null; nextAfter: string },
+): IntakeCheck {
+  const currentAfter = stored === null
+    ? null
+    : typeof stored.after === "string"
+    ? stored.after
+    : null;
+  if (currentAfter === args.nextAfter && args.expectedAfter !== currentAfter) {
+    return "committed";
+  }
+  if (currentAfter !== args.expectedAfter) {
+    throw new Error(
+      "checkpoint-conflict: stored intake checkpoint does not match the page predecessor",
+    );
+  }
+  return "fresh";
+}
+
 export const testing = {
+  checkIntakePage,
   decideIntakePromotion,
   statusName,
   setGhForTest: (
@@ -929,6 +959,16 @@ export const extension = {
       lifetime: "infinite",
       garbageCollection: 100,
     },
+    intakeCheck: {
+      description: "Result of the latest read-only intake page check.",
+      schema: z.object({
+        repo: repoSchema,
+        status: z.enum(["fresh", "committed"]),
+        nextAfter: z.string().min(1),
+      }),
+      lifetime: "1h",
+      garbageCollection: 5,
+    },
     answer: {
       description: "Idempotent stagecraft tracker operation answer.",
       schema: z.object({
@@ -1004,6 +1044,30 @@ export const extension = {
           "configuration",
           "configuration",
           { repo: args.repo },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    check_intake: {
+      description:
+        "Read-only. Report whether a page is fresh, already committed, or stale, before any claim writes a reservation.",
+      arguments: z.object({
+        repo: repoSchema,
+        expectedAfter: z.string().nullable(),
+        nextAfter: z.string().min(1),
+      }).strict(),
+      execute: async (
+        args: { repo: string; expectedAfter: string | null; nextAfter: string },
+        context: Context,
+      ) => {
+        const stored = await context.readResource(
+          `intake-${encodeURIComponent(args.repo)}`,
+        );
+        const status = checkIntakePage(stored, args);
+        const handle = await context.writeResource(
+          "intakeCheck",
+          `intake-check-${encodeURIComponent(args.repo)}`,
+          { repo: args.repo, status, nextAfter: args.nextAfter },
         );
         return { dataHandles: [handle] };
       },

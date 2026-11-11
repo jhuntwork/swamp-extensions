@@ -94,3 +94,9 @@ exactly. Cursors are opaque and are compared by equality only, never decoded or
 ordered. Redelivering an already committed page is a no-op. Any other mismatch
 fails with `checkpoint-conflict`, so a page that finishes out of order cannot
 move the checkpoint backwards. Links are deduplicated by immutable node ID.
+
+`check_intake` is the read-only counterpart. Called before a page is claimed, it
+reports `fresh` when the stored checkpoint is the page's predecessor and
+`committed` when the page already landed, and fails with `checkpoint-conflict`
+for a stale page. This keeps a stale or redelivered page from writing ticket
+reservations that the later compare-and-set cannot take back.
