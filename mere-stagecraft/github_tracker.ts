@@ -250,7 +250,266 @@ function checkIntakePage(
   return "fresh";
 }
 
+// ---------------------------------------------------------------------------
+// Scheduling state: priority, a fenced WIP lease, pause provenance and the
+// delivery-unit schema. Everything below is a pure decision over the stored
+// record, as intake promotion is, so each method is a single read and at most
+// one conditional write. All of it runs against one model instance, so Swamp's
+// per-model lock serializes concurrent callers.
+// ---------------------------------------------------------------------------
+
+type Priority = "P0" | "P1" | "P2" | "P3";
+const priorities: Priority[] = ["P0", "P1", "P2", "P3"];
+
+type PriorityFacts = {
+  securityConfirmed?: boolean;
+  releaseBlockingRegression?: boolean;
+  supportedUserRegression?: boolean;
+  requiredUpdate?: boolean;
+  reproducibleBug?: boolean;
+  acceptedMaintenance?: boolean;
+};
+
+/**
+ * Typed triage facts to a priority band. Confirmed security or release-blocking
+ * regressions are P0; supported-user regressions and required security or
+ * dependency updates are P1; reproducible ordinary bugs and accepted
+ * maintenance are P2; everything else is P3.
+ */
+function computePriority(facts: PriorityFacts): Priority {
+  if (facts.securityConfirmed || facts.releaseBlockingRegression) return "P0";
+  if (facts.supportedUserRegression || facts.requiredUpdate) return "P1";
+  if (facts.reproducibleBug || facts.acceptedMaintenance) return "P2";
+  return "P3";
+}
+
+type OverrideEntry = {
+  item: string;
+  by: string;
+  reason: string;
+  from: Priority;
+  to: Priority;
+  at: string;
+};
+
+function lastOverride(
+  journal: OverrideEntry[],
+  item: string,
+): OverrideEntry | undefined {
+  for (let i = journal.length - 1; i >= 0; i -= 1) {
+    if (journal[i].item === item) return journal[i];
+  }
+  return undefined;
+}
+
+/** A recorded override wins. Triage may recommend a value but never replaces it. */
+function effectivePriority(
+  computed: Priority,
+  journal: OverrideEntry[],
+  item: string,
+): Priority {
+  return lastOverride(journal, item)?.to ?? computed;
+}
+
+type QueueEntry = {
+  item: string;
+  stableId: string;
+  createdAt: string;
+  priority: Priority;
+};
+
+/** Effective priority, then age (oldest first), then stable issue ID. */
+function pickNext(queue: QueueEntry[]): QueueEntry | null {
+  const ranked = [...queue].sort((a, b) =>
+    priorities.indexOf(a.priority) - priorities.indexOf(b.priority) ||
+    (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0) ||
+    (a.stableId < b.stableId ? -1 : a.stableId > b.stableId ? 1 : 0)
+  );
+  return ranked[0] ?? null;
+}
+
+type WipLease = {
+  epoch: number;
+  holder: string | null;
+  acquiredAt: string | null;
+  reason: string | null;
+};
+
+function readLease(stored: Resource | null): WipLease {
+  return {
+    epoch: typeof stored?.epoch === "number" ? stored.epoch : 0,
+    holder: typeof stored?.holder === "string" ? stored.holder : null,
+    acquiredAt: typeof stored?.acquiredAt === "string"
+      ? stored.acquiredAt
+      : null,
+    reason: typeof stored?.reason === "string" ? stored.reason : null,
+  };
+}
+
+/** Acquire only when free. The new epoch is always the stored epoch plus one. */
+function decideAcquire(
+  stored: Resource | null,
+  holder: string,
+  at: string,
+): WipLease {
+  const lease = readLease(stored);
+  if (lease.holder !== null) {
+    throw new Error(`lease-held: the WIP lease is held by ${lease.holder}`);
+  }
+  return {
+    epoch: lease.epoch + 1,
+    holder,
+    acquiredAt: at,
+    reason: null,
+  };
+}
+
+/** Release needs the matching holder and epoch. The epoch is never lowered. */
+function decideRelease(
+  stored: Resource | null,
+  holder: string,
+  epoch: number,
+  reason: string,
+): WipLease {
+  const lease = readLease(stored);
+  if (lease.holder !== holder || lease.epoch !== epoch) {
+    throw new Error(
+      "lease-fenced: holder or epoch does not match the current lease",
+    );
+  }
+  return { epoch: lease.epoch, holder: null, acquiredAt: null, reason };
+}
+
+const lifecycleStates = [
+  "new",
+  "triage",
+  "needs-info",
+  "ready",
+  "in-progress",
+  "in-review",
+  "verifying",
+  "blocked",
+] as const;
+type LifecycleState = typeof lifecycleStates[number];
+
+type PauseRecord = {
+  id: string;
+  item: string;
+  pausedBy: string;
+  reason: string;
+  priorState: LifecycleState;
+  pausedAt: string;
+  resumedAt?: string;
+  resumedBy?: string;
+  restoredState?: LifecycleState;
+};
+
+async function pauseDigest(fields: string[]): Promise<string> {
+  const bytes = new TextEncoder().encode(fields.join("\u0000"));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0"))
+    .join("").slice(0, 32);
+}
+
+function activePause(stored: Resource | null): PauseRecord | null {
+  if (stored === null || typeof stored.id !== "string") return null;
+  return typeof stored.resumedAt === "string" ? null : stored as PauseRecord;
+}
+
+/**
+ * Resume needs the pause it was approved for. A paused in-progress item
+ * resumes as ready: pausing released its lease, so it must acquire it again
+ * and the WIP-of-one invariant holds. Every other state is restored as recorded.
+ */
+function decideResume(
+  stored: Resource | null,
+  pauseId: string,
+  resumedBy: string,
+  at: string,
+): PauseRecord {
+  const pause = activePause(stored);
+  if (pause === null) {
+    throw new Error("not-paused: the item has no active pause");
+  }
+  if (pause.id !== pauseId) {
+    throw new Error("pause-mismatch: the approval names a different pause");
+  }
+  if (resumedBy.length === 0) throw new Error("resumedBy must not be empty");
+  return {
+    ...pause,
+    resumedAt: at,
+    resumedBy,
+    restoredState: pause.priorState === "in-progress"
+      ? "ready"
+      : pause.priorState,
+  };
+}
+
+type DeliveryChild = {
+  id: string;
+  repository: string;
+  baseRef: string;
+  allowedPaths: string[];
+  workflow: string;
+  dependencies: string[];
+  branch?: string;
+  pr?: string;
+  testAttestation?: string;
+  ciConclusion?: string;
+};
+
+/** Children are unique, depend only on each other, and contain no cycle. */
+function validateDeliveryUnits(children: DeliveryChild[]): void {
+  const ids = new Set<string>();
+  for (const child of children) {
+    if (ids.has(child.id)) {
+      throw new Error(`invalid delivery units: duplicate child ${child.id}`);
+    }
+    ids.add(child.id);
+  }
+  const byId = new Map(children.map((child) => [child.id, child]));
+  for (const child of children) {
+    for (const dep of child.dependencies) {
+      if (dep === child.id) {
+        throw new Error(
+          `invalid delivery units: ${child.id} depends on itself`,
+        );
+      }
+      if (!byId.has(dep)) {
+        throw new Error(
+          `invalid delivery units: ${child.id} depends on unknown ${dep}`,
+        );
+      }
+    }
+  }
+  const state = new Map<string, 1 | 2>();
+  const visit = (id: string): void => {
+    if (state.get(id) === 2) return;
+    if (state.get(id) === 1) {
+      throw new Error(`invalid delivery units: dependency cycle at ${id}`);
+    }
+    state.set(id, 1);
+    for (const dep of byId.get(id)!.dependencies) visit(dep);
+    state.set(id, 2);
+  };
+  for (const child of children) visit(child.id);
+}
+
+const leaseName = "wip-lease";
+const overridesName = "priority-overrides";
+const pauseName = (item: string) => `pause-${encodeURIComponent(item)}`;
+const deliveryName = (parent: string) =>
+  `delivery-${encodeURIComponent(parent)}`;
+
 export const testing = {
+  computePriority,
+  effectivePriority,
+  pickNext,
+  decideAcquire,
+  decideRelease,
+  decideResume,
+  validateDeliveryUnits,
+  pauseDigest,
   checkIntakePage,
   decideIntakePromotion,
   statusName,
@@ -969,6 +1228,70 @@ export const extension = {
       lifetime: "1h",
       garbageCollection: 5,
     },
+    wipLease: {
+      description:
+        "The global implementation WIP lease. The epoch only ever increases.",
+      schema: z.object({
+        epoch: z.number().int().nonnegative(),
+        holder: z.string().nullable(),
+        acquiredAt: z.string().nullable(),
+        reason: z.string().nullable(),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
+    priorityOverrides: {
+      description: "Append-only journal of maintainer priority overrides.",
+      schema: z.object({
+        entries: z.array(z.object({
+          item: z.string().min(1),
+          by: z.string().min(1),
+          reason: z.string().min(1),
+          from: z.enum(["P0", "P1", "P2", "P3"]),
+          to: z.enum(["P0", "P1", "P2", "P3"]),
+          at: z.string(),
+        })),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
+    pauseRecord: {
+      description: "Why and from where an item was paused, and how it resumed.",
+      schema: z.object({
+        id: z.string().min(1),
+        item: z.string().min(1),
+        pausedBy: z.string().min(1),
+        reason: z.string().min(1),
+        priorState: z.enum(lifecycleStates),
+        pausedAt: z.string(),
+        resumedAt: z.string().optional(),
+        resumedBy: z.string().optional(),
+        restoredState: z.enum(lifecycleStates).optional(),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
+    deliveryUnits: {
+      description:
+        "A parent work item and its repository-specific child delivery units.",
+      schema: z.object({
+        parent: z.string().min(1),
+        children: z.array(z.object({
+          id: z.string().min(1),
+          repository: repoSchema,
+          baseRef: z.string().min(1),
+          allowedPaths: z.array(z.string().min(1)),
+          workflow: z.string().min(1),
+          dependencies: z.array(z.string().min(1)),
+          branch: z.string().optional(),
+          pr: z.string().optional(),
+          testAttestation: z.string().optional(),
+          ciConclusion: z.string().optional(),
+        })),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
     answer: {
       description: "Idempotent stagecraft tracker operation answer.",
       schema: z.object({
@@ -1046,6 +1369,237 @@ export const extension = {
           { repo: args.repo },
         );
         return { dataHandles: [handle] };
+      },
+    },
+    acquire_lease: {
+      description:
+        "Acquire the global WIP lease if it is free. Returns the new, higher epoch.",
+      arguments: z.object({ holder: z.string().min(1) }).strict(),
+      execute: async (args: { holder: string }, context: Context) => {
+        const next = decideAcquire(
+          await context.readResource(leaseName),
+          args.holder,
+          new Date().toISOString(),
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("wipLease", leaseName, next),
+          ],
+        };
+      },
+    },
+    release_lease: {
+      description:
+        "Release the WIP lease. Requires the matching holder and epoch.",
+      arguments: z.object({
+        holder: z.string().min(1),
+        epoch: z.number().int().positive(),
+        reason: z.string().min(1),
+      }).strict(),
+      execute: async (
+        args: { holder: string; epoch: number; reason: string },
+        context: Context,
+      ) => {
+        const next = decideRelease(
+          await context.readResource(leaseName),
+          args.holder,
+          args.epoch,
+          args.reason,
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("wipLease", leaseName, next),
+          ],
+        };
+      },
+    },
+    interrupt_lease: {
+      description:
+        "Release the WIP lease because work was interrupted, recording why.",
+      arguments: z.object({
+        holder: z.string().min(1),
+        epoch: z.number().int().positive(),
+        reason: z.string().min(1),
+      }).strict(),
+      execute: async (
+        args: { holder: string; epoch: number; reason: string },
+        context: Context,
+      ) => {
+        const next = decideRelease(
+          await context.readResource(leaseName),
+          args.holder,
+          args.epoch,
+          `interrupted: ${args.reason}`,
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("wipLease", leaseName, next),
+          ],
+        };
+      },
+    },
+    check_lease: {
+      description:
+        "Fail with lease-fenced unless the holder and epoch are the current lease.",
+      arguments: z.object({
+        holder: z.string().min(1),
+        epoch: z.number().int().positive(),
+      }).strict(),
+      execute: async (
+        args: { holder: string; epoch: number },
+        context: Context,
+      ) => {
+        const lease = readLease(await context.readResource(leaseName));
+        if (lease.holder !== args.holder || lease.epoch !== args.epoch) {
+          throw new Error(
+            "lease-fenced: holder or epoch does not match the current lease",
+          );
+        }
+        return {
+          dataHandles: [
+            await context.writeResource("wipLease", leaseName, lease),
+          ],
+        };
+      },
+    },
+    set_override: {
+      description:
+        "Record a maintainer priority override. The journal is append-only.",
+      arguments: z.object({
+        item: z.string().min(1),
+        by: z.string().min(1),
+        reason: z.string().min(1),
+        from: z.enum(["P0", "P1", "P2", "P3"]),
+        to: z.enum(["P0", "P1", "P2", "P3"]),
+      }).strict(),
+      execute: async (
+        args: {
+          item: string;
+          by: string;
+          reason: string;
+          from: Priority;
+          to: Priority;
+        },
+        context: Context,
+      ) => {
+        const stored = await context.readResource(overridesName);
+        const entries = Array.isArray(stored?.entries)
+          ? stored.entries as OverrideEntry[]
+          : [];
+        entries.push({ ...args, at: new Date().toISOString() });
+        return {
+          dataHandles: [
+            await context.writeResource("priorityOverrides", overridesName, {
+              entries,
+            }),
+          ],
+        };
+      },
+    },
+    pause_item: {
+      description:
+        "Pause an item, recording who, why and the state it was paused from.",
+      arguments: z.object({
+        item: z.string().min(1),
+        pausedBy: z.string().min(1),
+        reason: z.string().min(1),
+        priorState: z.enum(lifecycleStates),
+      }).strict(),
+      execute: async (
+        args: {
+          item: string;
+          pausedBy: string;
+          reason: string;
+          priorState: LifecycleState;
+        },
+        context: Context,
+      ) => {
+        const name = pauseName(args.item);
+        if (activePause(await context.readResource(name)) !== null) {
+          throw new Error(
+            "already-paused: the item already has an active pause",
+          );
+        }
+        const at = new Date().toISOString();
+        const record: PauseRecord = {
+          id: await pauseDigest([
+            args.item,
+            args.pausedBy,
+            args.reason,
+            args.priorState,
+            at,
+          ]),
+          item: args.item,
+          pausedBy: args.pausedBy,
+          reason: args.reason,
+          priorState: args.priorState,
+          pausedAt: at,
+        };
+        return {
+          dataHandles: [
+            await context.writeResource("pauseRecord", name, record),
+          ],
+        };
+      },
+    },
+    resume_item: {
+      description:
+        "Resume a paused item. Needs the pause id the approval was given for.",
+      arguments: z.object({
+        item: z.string().min(1),
+        pauseId: z.string().min(1),
+        resumedBy: z.string().min(1),
+      }).strict(),
+      execute: async (
+        args: { item: string; pauseId: string; resumedBy: string },
+        context: Context,
+      ) => {
+        const name = pauseName(args.item);
+        const next = decideResume(
+          await context.readResource(name),
+          args.pauseId,
+          args.resumedBy,
+          new Date().toISOString(),
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("pauseRecord", name, next),
+          ],
+        };
+      },
+    },
+    set_delivery_units: {
+      description:
+        "Store and validate a parent's repository-specific delivery units.",
+      arguments: z.object({
+        parent: z.string().min(1),
+        children: z.array(z.object({
+          id: z.string().min(1),
+          repository: repoSchema,
+          baseRef: z.string().min(1),
+          allowedPaths: z.array(z.string().min(1)),
+          workflow: z.string().min(1),
+          dependencies: z.array(z.string().min(1)),
+          branch: z.string().optional(),
+          pr: z.string().optional(),
+          testAttestation: z.string().optional(),
+          ciConclusion: z.string().optional(),
+        })),
+      }).strict(),
+      execute: async (
+        args: { parent: string; children: DeliveryChild[] },
+        context: Context,
+      ) => {
+        validateDeliveryUnits(args.children);
+        return {
+          dataHandles: [
+            await context.writeResource(
+              "deliveryUnits",
+              deliveryName(args.parent),
+              args,
+            ),
+          ],
+        };
       },
     },
     check_intake: {

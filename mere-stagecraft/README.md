@@ -104,3 +104,29 @@ reservations that the later compare-and-set cannot take back.
 The result is written to `intake-check`, a fixed name, and carries the `repo` it
 was computed for. Read it immediately after the call: a later call overwrites
 it.
+
+## Scheduling state
+
+These methods hold the scheduler's state. Each is one read and at most one
+write, and all of them must run against one model instance so Swamp's per-model
+lock serializes concurrent callers.
+
+- **Priority.** `set_override` appends a maintainer override to an append-only
+  journal with who, why, the old value and the new value. A recorded override
+  always wins over a later computed priority. Ready items are ordered by
+  effective priority, then age, then stable issue ID.
+- **WIP lease.** `acquire_lease` takes the one global lease only when it is free
+  and returns an epoch one higher than any before it. The epoch and the holder
+  are one record written once per acquire, so a failed write changes nothing and
+  an epoch is never reused. `release_lease`, `interrupt_lease` and `check_lease`
+  need the matching holder and epoch, and a stale one fails with `lease-fenced`.
+  A held lease fails an acquire with `lease-held`. A lease is never released by
+  elapsed time.
+- **Pause and resume.** `pause_item` records who paused an item, why, and the
+  state it was paused from, under an id that names that pause. `resume_item`
+  needs that id and fails with `pause-mismatch` for any other. An item paused
+  from `in-progress` resumes as `ready`, because pausing released its lease and
+  it must acquire it again; every other state is restored as recorded.
+- **Delivery units.** `set_delivery_units` stores a parent's repository-specific
+  children and rejects duplicates, unknown dependencies and cycles. It stores
+  and validates only.
