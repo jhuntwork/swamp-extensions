@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-stagecraft"
-version: "2026.11.11.9"
+version: "2026.11.11.10"
 description: >-
   GitHub Issues tracker adapter for the Mere Stagecraft issue lifecycle.
 repository: "https://github.com/jhuntwork/swamp-extensions"
