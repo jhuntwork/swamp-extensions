@@ -30,9 +30,16 @@ swamp behavior run merelinux-github describe
 
 The tracker behavior accepts an explicit `repo` in each operation request or
 uses the repository saved by `configure`. The `operate` method accepts
-`fetch_issue`, `create`, `comment`, `set_status`, `set_type`, `relate`, and
-`unrelate`; create and comment requests receive deterministic idempotency keys
-when the caller does not provide one.
+`fetch_issue`, `create`, `comment`, `set_status`, `set_type`, `relate`,
+`unrelate`, and `enumerate_issues`; create and comment requests receive
+deterministic idempotency keys when the caller does not provide one.
+
+`enumerate_issues` uses GitHub GraphQL to read both open and closed issues. It
+returns immutable node IDs and opaque cursor checkpoints without mutating
+GitHub. Status projection owns only `status:in-progress` and `status:done`:
+`open` and `closed` have no owned label, and `in_progress` and `shipped` pair
+those labels with GitHub OPEN and CLOSED respectively. Conflicting or mismatched
+owned status state is rejected.
 
 ## Bind it to Stagecraft
 

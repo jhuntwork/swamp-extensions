@@ -1,5 +1,5 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.19";
-import { extension } from "./github_tracker.ts";
+import { extension, testing } from "./github_tracker.ts";
 
 type Resource = Record<string, unknown>;
 type TestContext = {
@@ -23,6 +23,111 @@ function operateExecute(): OperateExecute {
   assertExists(method);
   return method.operate.execute;
 }
+
+Deno.test("status projection accepts only canonical state-label pairs", () => {
+  assertEquals(
+    testing.statusName({ state: "OPEN", labels: [] } as never),
+    "open",
+  );
+  assertEquals(
+    testing.statusName(
+      { state: "OPEN", labels: [{ name: "status:in-progress" }] } as never,
+    ),
+    "status:in-progress",
+  );
+  assertEquals(
+    testing.statusName(
+      { state: "CLOSED", labels: [{ name: "status:done" }] } as never,
+    ),
+    "status:done",
+  );
+  assertEquals(
+    testing.statusName({ state: "CLOSED", labels: [] } as never),
+    "closed",
+  );
+});
+
+Deno.test("status projection rejects conflicting or mismatched owned labels", () => {
+  for (
+    const issue of [
+      { state: "OPEN", labels: [{ name: "status:done" }] },
+      { state: "CLOSED", labels: [{ name: "status:in-progress" }] },
+      {
+        state: "OPEN",
+        labels: [{ name: "status:in-progress" }, { name: "status:done" }],
+      },
+    ]
+  ) {
+    let thrown: unknown;
+    try {
+      testing.statusName(issue as never);
+    } catch (error) {
+      thrown = error;
+    }
+    assertExists(thrown);
+  }
+});
+
+Deno.test("enumerate_issues uses both states and returns a final-page checkpoint", async () => {
+  const calls: string[][] = [];
+  testing.setGhForTest((args) => {
+    calls.push(args);
+    return Promise.resolve({
+      data: {
+        repository: {
+          issues: {
+            nodes: [{
+              id: "I_1",
+              number: 1,
+              title: "closed issue",
+              body: "",
+              state: "CLOSED",
+              url: "https://example.test/issues/1",
+              createdAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-02T00:00:00Z",
+              labels: { nodes: [{ name: "status:done" }] },
+            }],
+            pageInfo: { endCursor: "opaque-final", hasNextPage: false },
+          },
+        },
+      },
+    });
+  });
+  try {
+    const writes: Resource[] = [];
+    await operateExecute()(
+      {
+        operation: "enumerate_issues",
+        request: JSON.stringify({ repo: "acme/repo", limit: 2 }),
+        answer: "enumerate-answer",
+        run: "run-enumerate",
+      },
+      {
+        readResource: () => Promise.resolve(null),
+        writeResource: (_spec, _name, data) => {
+          writes.push(data as Resource);
+          return Promise.resolve({ name: "enumerate-answer" });
+        },
+        logger: { warning: () => {} },
+      },
+    );
+    assertEquals(calls.length, 1);
+    assertEquals(calls[0].includes("graphql"), true);
+    assertEquals(
+      calls[0].some((value) => value.includes("states: [OPEN, CLOSED]")),
+      true,
+    );
+    const result = writes[0].result as Resource;
+    assertEquals((result.checkpoint as Resource).after, "opaque-final");
+    assertEquals((result.checkpoint as Resource).exhausted, true);
+    assertEquals(
+      ((result.issues as Resource[])[0].status as Resource).id,
+      "status:done",
+    );
+  } finally {
+    testing.resetGhForTest();
+  }
+});
 
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");

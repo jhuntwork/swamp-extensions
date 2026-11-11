@@ -15,6 +15,7 @@ const operationSchema = z.enum([
   "relate",
   "unrelate",
   "set_type",
+  "enumerate_issues",
 ]);
 const answerNameSchema = z.string().min(1).regex(/^[A-Za-z0-9._:-]+$/);
 const issueTypes = new Set(["bug", "feature", "package", "task"]);
@@ -133,10 +134,45 @@ function labelNames(issue: Issue): string[] {
     : [];
 }
 
+const ownedStatusLabels = new Set(["status:in-progress", "status:done"]);
+
 function statusName(issue: Issue): string {
-  const label = labelNames(issue).find((name) => name.startsWith("status:"));
-  return label ?? (issue.state || "open").toLowerCase();
+  const state = (issue.state || "").toUpperCase();
+  const owned = labelNames(issue).filter((name) => ownedStatusLabels.has(name));
+  if (owned.length > 1) {
+    throw new Error("status-conflict: more than one owned status label");
+  }
+  const label = owned[0];
+  if (label === "status:in-progress") {
+    if (state !== "OPEN") {
+      throw new Error("status-conflict: status:in-progress requires OPEN");
+    }
+    return label;
+  }
+  if (label === "status:done") {
+    if (state !== "CLOSED") {
+      throw new Error("status-conflict: status:done requires CLOSED");
+    }
+    return label;
+  }
+  if (state === "OPEN") return "open";
+  if (state === "CLOSED") return "closed";
+  throw new Error(
+    `status-conflict: unsupported GitHub issue state '${issue.state}'`,
+  );
 }
+
+export const testing = {
+  statusName,
+  setGhForTest: (
+    runner: (args: string[], signal?: AbortSignal) => Promise<unknown>,
+  ) => {
+    gh = runner;
+  },
+  resetGhForTest: () => {
+    gh = commandGh;
+  },
+};
 
 function commentBody(body: string | undefined): string | undefined {
   return body?.replace(/\n+<!-- stagecraft:comment:[^>]+ -->\s*$/, "");
@@ -224,7 +260,7 @@ async function readBounded(
   return new TextDecoder().decode(output);
 }
 
-async function gh(
+async function commandGh(
   args: string[],
   signal?: AbortSignal,
 ): Promise<unknown> {
@@ -272,6 +308,8 @@ async function gh(
   }
 }
 
+let gh = commandGh;
+
 async function fetchIssue(
   repo: string,
   number: number,
@@ -286,6 +324,76 @@ async function fetchIssue(
     "--json",
     "number,title,body,state,author,createdAt,updatedAt,labels,comments,url,assignees",
   ], signal) as Issue;
+}
+
+async function enumerateIssues(
+  repo: string,
+  after: string | undefined,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<{ issues: Issue[]; checkpoint: Resource }> {
+  const [owner, name] = repo.split("/");
+  const query =
+    `query($owner: String!, $name: String!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      issues(first: $first, after: $after, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: ASC}) {
+        nodes { id number title body state url createdAt updatedAt labels(first: 100) { nodes { name } } }
+        pageInfo { endCursor hasNextPage }
+      }
+    }
+  }`;
+  const output = await gh([
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-F",
+    `owner=${owner}`,
+    "-F",
+    `name=${name}`,
+    "-F",
+    `first=${limit}`,
+    ...(after === undefined ? [] : ["-F", `after=${after}`]),
+  ], signal) as Resource;
+  const connection =
+    ((output.data as Resource | undefined)?.repository as Resource | undefined)
+      ?.issues as Resource | undefined;
+  if (!connection || !Array.isArray(connection.nodes) || !connection.pageInfo) {
+    throw new Error(
+      "GitHub GraphQL response did not contain repository issues",
+    );
+  }
+  const pageInfo = connection.pageInfo as Resource;
+  const issues = connection.nodes.map((node) => {
+    const value = node as Resource;
+    const labels = (value.labels as Resource | undefined)?.nodes;
+    return { ...value, labels: Array.isArray(labels) ? labels : [] } as Issue;
+  });
+  const endCursor = typeof pageInfo.endCursor === "string"
+    ? pageInfo.endCursor
+    : after;
+  const exhausted = pageInfo.hasNextPage === false;
+  return {
+    issues,
+    checkpoint: {
+      after: issues.length === 0 && exhausted
+        ? after ?? null
+        : endCursor ?? null,
+      emitted: issues.map((issue) => String((issue as Resource).id)),
+      watermark: issues.reduce<Resource | null>((latest, issue) => {
+        const candidate = {
+          updatedAt: issue.updatedAt ?? "",
+          nodeId: String((issue as Resource).id),
+        };
+        return latest === null ||
+            `${candidate.updatedAt}\u0000${candidate.nodeId}` >
+              `${latest.updatedAt}\u0000${latest.nodeId}`
+          ? candidate
+          : latest;
+      }, null),
+      exhausted,
+    },
+  };
 }
 
 async function fetchRelations(
@@ -456,6 +564,27 @@ async function operateOne(
       const issue = await fetchIssue(repo, issueNumber(request.issue));
       return { result: ticket(repo, issue, relations.store.relations) };
     }
+    case "enumerate_issues": {
+      const after = request.after === undefined || request.after === null
+        ? undefined
+        : text(request.after, "request.after");
+      const limit = request.limit;
+      if (
+        !Number.isInteger(limit) || typeof limit !== "number" || limit <= 0 ||
+        limit > 100
+      ) {
+        throw new Error("request.limit must be an integer from 1 through 100");
+      }
+      const page = await enumerateIssues(repo, after, limit);
+      return {
+        result: {
+          issues: page.issues.map((issue) =>
+            ticket(repo, issue, relations.store.relations)
+          ),
+          checkpoint: page.checkpoint,
+        },
+      };
+    }
     case "create": {
       const title = text(request.title, "request.title");
       const body = text(request.body, "request.body");
@@ -556,11 +685,13 @@ async function operateOne(
           result: { changed: false, status: { id: status, name: status } },
         };
       }
-      const label = status.startsWith("status:") ? status : `status:${status}`;
-      await ensureStatusLabel(repo, label);
+      const label = status.startsWith("status:") ? status : undefined;
+      const desiredState = status === "open" || status === "status:in-progress"
+        ? "OPEN"
+        : "CLOSED";
       for (
         const old of labelNames(issue).filter((name) =>
-          name.startsWith("status:") && name !== label
+          ownedStatusLabels.has(name) && name !== label
         )
       ) {
         await gh([
@@ -573,16 +704,30 @@ async function operateOne(
           old,
         ]);
       }
-      await gh([
-        "issue",
-        "edit",
-        String(number),
-        "--repo",
-        repo,
-        "--add-label",
-        label,
-      ]);
-      return { result: { changed: true, status: { id: label, name: label } } };
+      if (label !== undefined) {
+        await ensureStatusLabel(repo, label);
+        await gh([
+          "issue",
+          "edit",
+          String(number),
+          "--repo",
+          repo,
+          "--add-label",
+          label,
+        ]);
+      }
+      if ((issue.state || "").toUpperCase() !== desiredState) {
+        await gh([
+          "issue",
+          desiredState === "OPEN" ? "reopen" : "close",
+          String(number),
+          "--repo",
+          repo,
+        ]);
+      }
+      return {
+        result: { changed: true, status: { id: status, name: status } },
+      };
     }
     case "set_type": {
       const number = issueNumber(request.issue);
