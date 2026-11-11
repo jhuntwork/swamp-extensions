@@ -129,6 +129,50 @@ Deno.test("enumerate_issues uses both states and returns a final-page checkpoint
   }
 });
 
+Deno.test("set_status changes GitHub state before adding its owned label", async () => {
+  const calls: string[][] = [];
+  testing.setGhForTest((args) => {
+    calls.push(args);
+    if (args[0] === "issue" && args[1] === "view") {
+      return Promise.resolve({
+        number: 1,
+        title: "issue",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        url: "https://example.test/issues/1",
+      });
+    }
+    return Promise.resolve(null);
+  });
+  try {
+    await operateExecute()(
+      {
+        operation: "set_status",
+        request: JSON.stringify({
+          repo: "acme/repo",
+          issue: 1,
+          status: "status:done",
+        }),
+        answer: "status-answer",
+        run: "run-status",
+      },
+      {
+        readResource: () => Promise.resolve(null),
+        writeResource: () => Promise.resolve({ name: "status-answer" }),
+        logger: { warning: () => {} },
+      },
+    );
+    const close = calls.findIndex((args) =>
+      args[0] === "issue" && args[1] === "close"
+    );
+    const add = calls.findIndex((args) => args.includes("--add-label"));
+    assertEquals(close >= 0 && add > close, true);
+  } finally {
+    testing.resetGhForTest();
+  }
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
