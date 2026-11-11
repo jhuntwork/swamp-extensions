@@ -168,3 +168,13 @@ position.
 status, for example `status:done` on an open issue. That issue comes back with
 status `conflict` and a `conflict` message so a caller can record it for a
 person. `fetch_issue` and `set_status` stay strict and still refuse it.
+
+## Interventions
+
+Reconcile repairs only safe discrepancies and records the rest for a person.
+`record_intervention` appends a record with the issue, a kind and a detail. A
+record is keyed by those three, so finding the same condition again on the next
+run adds nothing while the first is unresolved. `resolve_intervention` marks an
+open record resolved and names who resolved it. Once a record is resolved, the
+same condition recurring is recorded again. Resolving a record that is not open
+changes nothing.

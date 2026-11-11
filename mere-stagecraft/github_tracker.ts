@@ -410,6 +410,51 @@ function nextReady(
   };
 }
 
+type Intervention = {
+  key: string;
+  stableId: string;
+  kind: string;
+  detail: string;
+  recordedAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+};
+
+/**
+ * Reconcile records what it will not repair. The same condition found again on
+ * the next run must not add a second record, so an unresolved record with the
+ * same issue, kind and detail makes a repeat a no-op. Once a person resolves a
+ * record, the same condition recurring is recorded again.
+ */
+function decideIntervention(
+  journal: Intervention[],
+  args: { stableId: string; kind: string; detail: string },
+  at: string,
+): Intervention[] | null {
+  const key = `${args.stableId}|${args.kind}|${args.detail}`;
+  if (journal.some((entry) => entry.key === key && !entry.resolvedAt)) {
+    return null;
+  }
+  return [...journal, { key, ...args, recordedAt: at }];
+}
+
+/** Resolving a record that is not open changes nothing. */
+function decideResolve(
+  journal: Intervention[],
+  key: string,
+  by: string,
+  at: string,
+): Intervention[] | null {
+  if (!journal.some((entry) => entry.key === key && !entry.resolvedAt)) {
+    return null;
+  }
+  return journal.map((entry) =>
+    entry.key === key && !entry.resolvedAt
+      ? { ...entry, resolvedAt: at, resolvedBy: by }
+      : entry
+  );
+}
+
 type WipLease = {
   epoch: number;
   holder: string | null;
@@ -599,6 +644,7 @@ function validateDeliveryUnits(children: DeliveryChild[]): void {
 const leaseName = "wip-lease";
 const overridesName = "priority-overrides";
 const queueName = "ready-queue";
+const interventionsName = "interventions";
 const nextReadyName = "next-ready";
 const pauseName = (item: string) => `pause-${encodeURIComponent(item)}`;
 const deliveryName = (parent: string) =>
@@ -614,6 +660,8 @@ export const testing = {
   decideResume,
   decideOverride,
   decideEnqueue,
+  decideIntervention,
+  decideResolve,
   decideDequeue,
   nextReady,
   releaseLeaseForPause,
@@ -1455,6 +1503,23 @@ export const extension = {
       lifetime: "1h",
       garbageCollection: 5,
     },
+    interventions: {
+      description:
+        "Discrepancies reconcile found and will not repair, for a person to resolve.",
+      schema: z.object({
+        entries: z.array(z.object({
+          key: z.string().min(1),
+          stableId: z.string().min(1),
+          kind: z.string().min(1),
+          detail: z.string().min(1),
+          recordedAt: z.string(),
+          resolvedAt: z.string().optional(),
+          resolvedBy: z.string().optional(),
+        })),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
     answer: {
       description: "Idempotent stagecraft tracker operation answer.",
       schema: z.object({
@@ -1861,6 +1926,63 @@ export const extension = {
               stableId: picked?.entry.stableId ?? null,
               priority: picked?.priority ?? null,
               queued: queue.length,
+            }),
+          ],
+        };
+      },
+    },
+    record_intervention: {
+      description:
+        "Record a discrepancy for a person. Idempotent while an identical record is unresolved.",
+      arguments: z.object({
+        stableId: z.string().min(1),
+        kind: z.string().min(1),
+        detail: z.string().min(1),
+      }).strict(),
+      execute: async (
+        args: { stableId: string; kind: string; detail: string },
+        context: Context,
+      ) => {
+        const stored = await context.readResource(interventionsName);
+        const journal = Array.isArray(stored?.entries)
+          ? stored.entries as Intervention[]
+          : [];
+        const next = decideIntervention(
+          journal,
+          args,
+          new Date().toISOString(),
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("interventions", interventionsName, {
+              entries: next ?? journal,
+            }),
+          ],
+        };
+      },
+    },
+    resolve_intervention: {
+      description:
+        "Mark an open intervention resolved, recording who. Idempotent for one that is not open.",
+      arguments: z.object({
+        key: z.string().min(1),
+        by: z.string().min(1),
+      }).strict(),
+      execute: async (args: { key: string; by: string }, context: Context) => {
+        const stored = await context.readResource(interventionsName);
+        const journal = Array.isArray(stored?.entries)
+          ? stored.entries as Intervention[]
+          : [];
+        const next = decideResolve(
+          journal,
+          args.key,
+          args.by,
+          new Date().toISOString(),
+        );
+        return {
+          dataHandles: [
+            await context.writeResource("interventions", interventionsName, {
+              entries: next ?? journal,
             }),
           ],
         };
