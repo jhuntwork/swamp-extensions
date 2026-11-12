@@ -825,6 +825,28 @@ Deno.test("enumerate_issues returns every issue when one has a conflicting statu
   }
 });
 
+Deno.test("an intervention is recorded once while it is open and again after it is resolved", () => {
+  const args = { stableId: "a.b.7", kind: "closed-while-active", detail: "x" };
+  const first = testing.decideIntervention([], args, "t1")!;
+  assertEquals(first.length, 1);
+  // The same condition found again on the next run adds nothing.
+  assertEquals(testing.decideIntervention(first, args, "t2"), null);
+  // A different detail is a different condition.
+  assertEquals(
+    testing.decideIntervention(first, { ...args, detail: "y" }, "t2")!.length,
+    2,
+  );
+  const resolved = testing.decideResolve(first, first[0].key, "jeremy", "t3")!;
+  assertEquals(resolved[0].resolvedBy, "jeremy");
+  // Resolving again is a no-op, and the condition recurring is recorded again.
+  assertEquals(
+    testing.decideResolve(resolved, first[0].key, "jeremy", "t4"),
+    null,
+  );
+  assertEquals(testing.decideIntervention(resolved, args, "t5")!.length, 2);
+  assertEquals(testing.decideResolve(first, "missing", "jeremy", "t3"), null);
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
@@ -835,6 +857,7 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
     "githubRelations",
     "intakeCheck",
     "intakeState",
+    "interventions",
     "nextReady",
     "pauseRecord",
     "preflight",
@@ -858,7 +881,9 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
       "pause_item",
       "preflight",
       "promote_intake",
+      "record_intervention",
       "release_lease",
+      "resolve_intervention",
       "resume_item",
       "set_delivery_units",
       "set_override",
