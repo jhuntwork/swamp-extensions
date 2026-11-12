@@ -1,3 +1,4 @@
+import { treeDigest } from "./pi_extension_pin.ts";
 import { type TriageRuntime, triageSnapshot } from "./work_item_triage.ts";
 
 const classification = {
@@ -275,4 +276,61 @@ Deno.test("a cancelled run writes nothing", async () => {
     "pi-cancelled",
   );
   assert(f.store.size === 1);
+});
+
+async function extensionTree() {
+  const root = await Deno.makeTempDir({ prefix: "triage-ext-" });
+  await Deno.mkdir(`${root}/extensions`);
+  await Deno.writeTextFile(`${root}/extensions/kiro.ts`, "export default 1");
+  return {
+    root,
+    entry: "extensions/kiro.ts",
+    digest: (await treeDigest(root)).digest,
+  };
+}
+
+Deno.test("a pinned provider extension is verified, then loaded by path with discovery off", async () => {
+  const ext = await extensionTree();
+  const withExt = { ...structuredClone(inputs), providerExtension: ext };
+  const f = fixture((r) => (r.dispatches[0].inputs = structuredClone(withExt)));
+  await triageSnapshot(structuredClone(withExt) as never, f.ctx, f.host);
+  const argv = f.calls[1];
+  assert(argv.includes("--no-extensions") && argv.includes("--no-tools"));
+  assert(argv[argv.indexOf("-e") + 1] === `${ext.root}/extensions/kiro.ts`);
+});
+
+Deno.test("a changed extension is refused before the version check or any model call", async () => {
+  const ext = await extensionTree();
+  await Deno.writeTextFile(
+    `${ext.root}/extensions/kiro.ts`,
+    "export default 2",
+  );
+  const withExt = { ...structuredClone(inputs), providerExtension: ext };
+  const f = fixture((r) => (r.dispatches[0].inputs = structuredClone(withExt)));
+  await refuses(
+    () => triageSnapshot(structuredClone(withExt) as never, f.ctx, f.host),
+    "pi-extension-digest-mismatch",
+  );
+  assert(f.calls.length === 0 && f.store.size === 1);
+});
+
+Deno.test("an extension that differs from the pinned inputs is refused", async () => {
+  const ext = await extensionTree();
+  const pinned = { ...structuredClone(inputs), providerExtension: ext };
+  const f = fixture((r) => (r.dispatches[0].inputs = structuredClone(pinned)));
+  const swapped = {
+    ...structuredClone(inputs),
+    providerExtension: { ...ext, digest: "0".repeat(64) },
+  };
+  await refuses(
+    () => triageSnapshot(swapped as never, f.ctx, f.host),
+    "triage-input-mismatch",
+  );
+  assert(f.calls.length === 0);
+});
+
+Deno.test("without a provider extension nothing is loaded", async () => {
+  const f = fixture();
+  await triageSnapshot(structuredClone(inputs) as never, f.ctx, f.host);
+  assert(!f.calls[1].includes("-e"));
 });

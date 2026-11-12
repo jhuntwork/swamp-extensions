@@ -193,6 +193,16 @@ inputs, or when the Pi version is not the expected one. Pi runs with no tools,
 extensions, skills or context files. The issue text reaches the model only as
 serialized data after the pinned prompt.
 
+Pi runs with extension discovery off, so only Pi's native providers are
+available. A model that only a provider extension supplies, such as
+`kiro-native`, needs that one extension named in the `providerExtension`
+argument: its directory, its entry file inside it, and a SHA-256 digest of the
+tree. The method recomputes the digest before every run and refuses on any
+difference, including in a file the entry imports, a symlink, or a file added or
+removed. The check detects a change since the digest was pinned. It does not
+stop a process running as the same user from changing the files between the
+check and Pi loading them. Nothing else is loaded, and tools stay off.
+
 It writes a `triageResult` resource and returns. It does not record artifacts,
 close the dispatch or advance the item; a workflow does that through Stagecraft,
 which still enforces its own gates. A repeat with identical input reuses the

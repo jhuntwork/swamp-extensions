@@ -6,6 +6,7 @@ import {
   snapshotInvocation,
 } from "./pi_snapshot_protocol.ts";
 import { captureProcess, piEnvironment } from "./pi_snapshot_process.ts";
+import { verifyProviderExtension } from "./pi_extension_pin.ts";
 
 /** Public issue facts supplied as pinned dispatch inputs, never executable instructions. */
 export const IssueSnapshot = z.strictObject({
@@ -24,6 +25,12 @@ const Arguments = z.strictObject({
   executable: z.string().startsWith("/"),
   expectedPiVersion: z.literal("1.5.2"),
   model: z.string().min(1),
+  /** The one extension Pi may load, for a model only a provider extension supplies. */
+  providerExtension: z.strictObject({
+    root: z.string().startsWith("/"),
+    entry: z.string().min(1),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  }).optional(),
   snapshot: IssueSnapshot,
   _stagecraft: StagecraftInput,
 });
@@ -140,7 +147,9 @@ export async function triageSnapshot(
   if (new TextEncoder().encode(prompt).length > 128 * 1024) {
     throw new Error("triage-context-limit");
   }
-  const invocation = snapshotInvocation(args.model, prompt);
+  // Validate the model and prompt now; the real invocation is built below,
+  // once the provider extension (if any) has been verified.
+  snapshotInvocation(args.model, prompt);
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(JSON.stringify({
@@ -169,6 +178,10 @@ export async function triageSnapshot(
     return { dataHandles: [] };
   }
   if (dispatch.outcome !== undefined) throw new Error("triage-dispatch-closed");
+  const extensionPath = args.providerExtension
+    ? await verifyProviderExtension(args.providerExtension)
+    : undefined;
+  const invocation = snapshotInvocation(args.model, prompt, extensionPath);
   ctx.logger.info("Classifying snapshot for {item} dispatch {dispatch}", {
     item: run.key,
     dispatch: dispatch.id,
