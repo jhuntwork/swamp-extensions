@@ -162,7 +162,67 @@ function statusName(issue: Issue): string {
   );
 }
 
+type IntakeLink = { stableId: string; nodeId: string; key: string };
+
+type IntakeDecision =
+  | { kind: "noop" }
+  | {
+    kind: "write";
+    state: {
+      repo: string;
+      after: string;
+      emitted: string[];
+      links: IntakeLink[];
+    };
+  };
+
+/**
+ * Compare-and-set for an intake page. The stored checkpoint is compared by
+ * equality only: cursors are opaque and are never decoded or ordered. A
+ * redelivery of an already-committed page is a no-op; any other mismatch is
+ * rejected so the caller retries from the stored checkpoint.
+ */
+function decideIntakePromotion(
+  stored: Resource | null,
+  args: {
+    repo: string;
+    expectedAfter: string | null;
+    nextAfter: string;
+    emitted: string[];
+    links: IntakeLink[];
+  },
+): IntakeDecision {
+  const currentAfter = stored === null
+    ? null
+    : typeof stored.after === "string"
+    ? stored.after
+    : null;
+  if (currentAfter === args.nextAfter && args.expectedAfter !== currentAfter) {
+    return { kind: "noop" };
+  }
+  if (currentAfter !== args.expectedAfter) {
+    throw new Error(
+      "checkpoint-conflict: stored intake checkpoint does not match the page predecessor",
+    );
+  }
+  const existing = stored !== null && Array.isArray(stored.links)
+    ? stored.links as IntakeLink[]
+    : [];
+  const byNode = new Map(existing.map((link) => [link.nodeId, link]));
+  for (const link of args.links) byNode.set(link.nodeId, link);
+  return {
+    kind: "write",
+    state: {
+      repo: args.repo,
+      after: args.nextAfter,
+      emitted: args.emitted,
+      links: [...byNode.values()],
+    },
+  };
+}
+
 export const testing = {
+  decideIntakePromotion,
   statusName,
   setGhForTest: (
     runner: (args: string[], signal?: AbortSignal) => Promise<unknown>,
@@ -853,6 +913,22 @@ export const extension = {
       lifetime: "infinite",
       garbageCollection: 100,
     },
+    intakeState: {
+      description:
+        "Committed GitHub intake checkpoint and issue links for one repository.",
+      schema: z.object({
+        repo: repoSchema,
+        after: z.string().nullable(),
+        emitted: z.array(z.string()),
+        links: z.array(z.object({
+          stableId: z.string().min(1),
+          nodeId: z.string().min(1),
+          key: z.string().min(1),
+        })),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
     answer: {
       description: "Idempotent stagecraft tracker operation answer.",
       schema: z.object({
@@ -928,6 +1004,42 @@ export const extension = {
           "configuration",
           "configuration",
           { repo: args.repo },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    promote_intake: {
+      description:
+        "Atomically commit one enumerated page's links and opaque checkpoint, only if the stored checkpoint equals the page's predecessor.",
+      arguments: z.object({
+        repo: repoSchema,
+        expectedAfter: z.string().nullable(),
+        nextAfter: z.string().min(1),
+        emitted: z.array(z.string().min(1)),
+        links: z.array(z.object({
+          stableId: z.string().min(1),
+          nodeId: z.string().min(1),
+          key: z.string().min(1),
+        })),
+      }).strict(),
+      execute: async (
+        args: {
+          repo: string;
+          expectedAfter: string | null;
+          nextAfter: string;
+          emitted: string[];
+          links: IntakeLink[];
+        },
+        context: Context,
+      ) => {
+        const name = `intake-${encodeURIComponent(args.repo)}`;
+        const stored = await context.readResource(name);
+        const decision = decideIntakePromotion(stored, args);
+        if (decision.kind === "noop") return { dataHandles: [{ name }] };
+        const handle = await context.writeResource(
+          "intakeState",
+          name,
+          decision.state,
         );
         return { dataHandles: [handle] };
       },

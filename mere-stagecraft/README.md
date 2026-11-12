@@ -83,3 +83,14 @@ deno test --allow-read --allow-write --allow-run --allow-env \
 The package is source-controlled here and is not published by this repository
 change. A fresh tracker conformance run against a running Mere operations server
 remains an integration check outside the package's unit tests.
+
+## Intake promotion
+
+`promote_intake` commits one enumerated page to the `intakeState` resource: the
+opaque `after` checkpoint, the emitted node IDs and the stable-ID to work-item
+links. It is a compare-and-set. The caller supplies `expectedAfter`, the
+checkpoint the page was enumerated from, and the stored checkpoint must equal it
+exactly. Cursors are opaque and are compared by equality only, never decoded or
+ordered. Redelivering an already committed page is a no-op. Any other mismatch
+fails with `checkpoint-conflict`, so a page that finishes out of order cannot
+move the checkpoint backwards. Links are deduplicated by immutable node ID.

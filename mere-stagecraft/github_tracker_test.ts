@@ -173,6 +173,84 @@ Deno.test("set_status changes GitHub state before adding its owned label", async
   }
 });
 
+Deno.test("intake promotion commits a page only from its predecessor checkpoint", () => {
+  const link = { stableId: "a.b.1", nodeId: "I_1", key: "mere-ops-pub-1" };
+  const first = testing.decideIntakePromotion(null, {
+    repo: "a/b",
+    expectedAfter: null,
+    nextAfter: "C1",
+    emitted: ["I_1"],
+    links: [link],
+  });
+  assertEquals(first.kind, "write");
+  assertEquals((first as { state: Resource }).state.after, "C1");
+
+  const stored = (first as { state: Resource }).state;
+  const redelivery = testing.decideIntakePromotion(stored, {
+    repo: "a/b",
+    expectedAfter: null,
+    nextAfter: "C1",
+    emitted: ["I_1"],
+    links: [link],
+  });
+  assertEquals(redelivery.kind, "noop");
+
+  const second = testing.decideIntakePromotion(stored, {
+    repo: "a/b",
+    expectedAfter: "C1",
+    nextAfter: "C2",
+    emitted: ["I_2"],
+    links: [{ stableId: "a.b.2", nodeId: "I_2", key: "mere-ops-pub-2" }],
+  });
+  assertEquals(second.kind, "write");
+  assertEquals(
+    ((second as { state: Resource }).state.links as unknown[]).length,
+    2,
+  );
+});
+
+Deno.test("intake promotion rejects an out-of-order page without regressing", () => {
+  const stored = {
+    repo: "a/b",
+    after: "C2",
+    emitted: [],
+    links: [],
+  };
+  let thrown: unknown;
+  try {
+    testing.decideIntakePromotion(stored, {
+      repo: "a/b",
+      expectedAfter: null,
+      nextAfter: "C1",
+      emitted: ["I_1"],
+      links: [],
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  assertExists(thrown);
+  assertEquals(String(thrown).includes("checkpoint-conflict"), true);
+});
+
+Deno.test("intake promotion deduplicates links by immutable node ID", () => {
+  const stored = {
+    repo: "a/b",
+    after: "C1",
+    emitted: [],
+    links: [{ stableId: "a.b.1", nodeId: "I_1", key: "old" }],
+  };
+  const decision = testing.decideIntakePromotion(stored, {
+    repo: "a/b",
+    expectedAfter: "C1",
+    nextAfter: "C2",
+    emitted: ["I_1"],
+    links: [{ stableId: "a.b.1", nodeId: "I_1", key: "new" }],
+  });
+  const links = (decision as { state: Resource }).state.links as Resource[];
+  assertEquals(links.length, 1);
+  assertEquals(links[0].key, "new");
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
@@ -180,11 +258,12 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
     "configuration",
     "description",
     "githubRelations",
+    "intakeState",
     "preflight",
   ]);
   assertEquals(
     extension.methods.flatMap((method) => Object.keys(method)).sort(),
-    ["configure", "describe", "operate", "preflight"],
+    ["configure", "describe", "operate", "preflight", "promote_intake"],
   );
 });
 
