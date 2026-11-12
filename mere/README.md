@@ -75,7 +75,9 @@ Implemented:
 - `@jeremy/mere/recipe-rebuild` increments one recipe's release number in an
   isolated worktree, validates and rebuilds it with mere, then delegates scoped
   delivery to `deliver-change`. It never changes the source version or source
-  hashes.
+  hashes. The caller must supply a `reason`, which becomes the pull-request
+  body, because a release-only rebuild is not worth merging without an
+  independent reason for it.
 
 - `@jeremy/mere/tree`: fixed-argv `fmtCheck`, `build`, `test`, `releaseBuild`,
   and `smoke` methods for an isolated Mere source tree. Every source path is
