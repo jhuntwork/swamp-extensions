@@ -208,3 +208,20 @@ close the dispatch or advance the item; a workflow does that through Stagecraft,
 which still enforces its own gates. A repeat with identical input reuses the
 saved result without another model call, and a repeat with different input is
 refused.
+
+## Execution reservation
+
+`execution_reservation.ts` adds the model type
+`@jeremy/mere-stagecraft/execution-reservation`. Create one instance per work
+item, named `<item>-reservation`. A workflow run acquires it before it
+dispatches a stage and releases it after the item has advanced, so two
+overlapping runs cannot both do the same stage's work. Stagecraft itself only
+caps dispatches per cycle and does not refuse a second dispatch while one is
+open.
+
+A reservation is identified by its owner (a workflow run id) and the item's era,
+stage and cycle. Acquiring is idempotent for the same identity and refused
+(`reservation-held`) for any other while held. Releasing needs the matching
+identity and the epoch (`reservation-fenced` otherwise). There is no age-based
+takeover and no force release. A reservation held by a run that died is
+recovered by resuming that run.
