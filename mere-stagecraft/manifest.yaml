@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-stagecraft"
-version: "2026.11.12.2"
+version: "2026.11.12.3"
 description: >-
   GitHub Issues tracker adapter for the Mere Stagecraft issue lifecycle.
 repository: "https://github.com/jhuntwork/swamp-extensions"
@@ -10,6 +10,7 @@ paths:
 models:
   - github_tracker.ts
   - work_item_triage.ts
+  - execution_reservation.ts
 workflows: []
 vaults: []
 drivers: []
@@ -21,6 +22,7 @@ additionalFiles:
   - work_item_triage_test.ts
   - pi_snapshot_protocol_test.ts
   - pi_extension_pin_test.ts
+  - execution_reservation_test.ts
   - pi_snapshot_process_test.ts
   - LICENSE.txt
 labels:

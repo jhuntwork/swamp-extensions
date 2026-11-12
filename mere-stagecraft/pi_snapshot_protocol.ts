@@ -62,6 +62,7 @@ const Message = z.object({
  * LF is the only record delimiter: Unicode U+2028/U+2029 belong inside strings.
  * A production process reader must enforce its byte bound while streaming too.
  */
+/** Parse Pi's JSON event stream into the one validated classification, or refuse. */
 export function parseClassification(stdout: string, exitCode: number) {
   if (exitCode !== 0) throw new Error("pi-process-failed");
   if (new TextEncoder().encode(stdout).length > 4 * 1024 * 1024) {
