@@ -178,3 +178,23 @@ run adds nothing while the first is unresolved. `resolve_intervention` marks an
 open record resolved and names who resolved it. Once a record is resolved, the
 same condition recurring is recorded again. Resolving a record that is not open
 changes nothing.
+
+## Snapshot triage with Pi
+
+`work_item_triage.ts` adds one method, `triage_snapshot`, to
+`@swamp/stagecraft/work-item`. It is for a factory stage with `mode: method`
+that targets the work item itself. It classifies one GitHub issue with the Pi
+installed on the serve host and its stored login.
+
+The method reads only what Stagecraft pinned when the dispatch was recorded: the
+stage prompt and the issue snapshot in the dispatch inputs. It refuses when the
+dispatch is not the current one, when the arguments differ from the pinned
+inputs, or when the Pi version is not the expected one. Pi runs with no tools,
+extensions, skills or context files. The issue text reaches the model only as
+serialized data after the pinned prompt.
+
+It writes a `triageResult` resource and returns. It does not record artifacts,
+close the dispatch or advance the item; a workflow does that through Stagecraft,
+which still enforces its own gates. A repeat with identical input reuses the
+saved result without another model call, and a repeat with different input is
+refused.
