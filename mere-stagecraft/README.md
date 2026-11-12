@@ -163,3 +163,8 @@ Each issue `enumerate_issues` returns carries its immutable GitHub `nodeId`, so
 a caller can pair an issue with its node ID directly. The checkpoint's `emitted`
 list is still a flat list of node IDs and must not be matched to tickets by
 position.
+
+`enumerate_issues` does not fail a page because one issue has a conflicting
+status, for example `status:done` on an open issue. That issue comes back with
+status `conflict` and a `conflict` message so a caller can record it for a
+person. `fetch_issue` and `set_status` stay strict and still refuse it.

@@ -605,6 +605,7 @@ const deliveryName = (parent: string) =>
   `delivery-${encodeURIComponent(parent)}`;
 
 export const testing = {
+  statusOrConflict,
   computePriority,
   effectivePriority,
   pickNext,
@@ -642,7 +643,30 @@ function cleanDescription(body: string): string {
   ).trimEnd();
 }
 
-function ticket(repo: string, issue: Issue, relations: Relation[]): Resource {
+/**
+ * The status of an issue, or a conflict marker. Enumeration uses this so one
+ * issue whose labels and state disagree is reported and does not stop a whole
+ * page. fetch_issue and set_status stay strict and still throw.
+ */
+function statusOrConflict(
+  issue: Issue,
+): { id: string; name: string; conflict?: string } {
+  try {
+    const name = statusName(issue);
+    return { id: name, name };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (!detail.startsWith("status-conflict")) throw error;
+    return { id: "conflict", name: "conflict", conflict: detail };
+  }
+}
+
+function ticket(
+  repo: string,
+  issue: Issue,
+  relations: Relation[],
+  tolerateConflict = false,
+): Resource {
   const stable = stableId(repo, issue.number);
   const related = relations.flatMap((relation) => {
     if (relation.issue === stable) {
@@ -668,7 +692,9 @@ function ticket(repo: string, issue: Issue, relations: Relation[]): Resource {
     display: `#${issue.number}`,
     title: issue.title,
     url: issue.url,
-    status: { id: statusName(issue), name: statusName(issue) },
+    status: tolerateConflict
+      ? statusOrConflict(issue)
+      : { id: statusName(issue), name: statusName(issue) },
     relations: related,
     description: cleanDescription(issue.body),
     labels: labelNames(issue),
@@ -1038,7 +1064,7 @@ async function operateOne(
           // The immutable node ID rides on each ticket so a caller can build
           // links without matching a flat list to the tickets by position.
           issues: page.issues.map((issue) => ({
-            ...ticket(repo, issue, relations.store.relations),
+            ...ticket(repo, issue, relations.store.relations, true),
             nodeId: String((issue as Resource).id),
           })),
           checkpoint: page.checkpoint,
