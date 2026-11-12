@@ -19,9 +19,7 @@ additionalFiles:
   - README.md
   - github_tracker_test.ts
   - work_item_triage_test.ts
-  - pi_snapshot_protocol.ts
   - pi_snapshot_protocol_test.ts
-  - pi_snapshot_process.ts
   - pi_snapshot_process_test.ts
   - LICENSE.txt
 labels:
