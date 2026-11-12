@@ -291,6 +291,30 @@ Deno.test("promote_intake returns a written handle when a page is redelivered", 
   assertEquals(result.dataHandles.length, 1);
 });
 
+Deno.test("intake check classifies fresh, committed and stale pages without writing", () => {
+  const stored = { repo: "a/b", after: "C2", emitted: [], links: [] };
+  assertEquals(
+    testing.checkIntakePage(null, { expectedAfter: null, nextAfter: "C1" }),
+    "fresh",
+  );
+  assertEquals(
+    testing.checkIntakePage(stored, { expectedAfter: "C2", nextAfter: "C3" }),
+    "fresh",
+  );
+  assertEquals(
+    testing.checkIntakePage(stored, { expectedAfter: "C1", nextAfter: "C2" }),
+    "committed",
+  );
+  let thrown: unknown;
+  try {
+    testing.checkIntakePage(stored, { expectedAfter: null, nextAfter: "C1" });
+  } catch (error) {
+    thrown = error;
+  }
+  assertExists(thrown);
+  assertEquals(String(thrown).includes("checkpoint-conflict"), true);
+});
+
 Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
   assertEquals(extension.type, "@webframp/github");
   assertEquals(Object.keys(extension.resources).sort(), [
@@ -298,12 +322,20 @@ Deno.test("GitHub tracker exposes the Stagecraft contract", () => {
     "configuration",
     "description",
     "githubRelations",
+    "intakeCheck",
     "intakeState",
     "preflight",
   ]);
   assertEquals(
     extension.methods.flatMap((method) => Object.keys(method)).sort(),
-    ["configure", "describe", "operate", "preflight", "promote_intake"],
+    [
+      "check_intake",
+      "configure",
+      "describe",
+      "operate",
+      "preflight",
+      "promote_intake",
+    ],
   );
 });
 
