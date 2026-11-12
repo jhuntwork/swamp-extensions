@@ -360,6 +360,56 @@ function pickNext(queue: QueueEntry[]): QueueEntry | null {
   return ranked[0] ?? null;
 }
 
+type ReadyEntry = {
+  item: string;
+  stableId: string;
+  createdAt: string;
+  computed: Priority;
+};
+
+/**
+ * Enqueueing an item that is already queued changes nothing, so a repeated
+ * enqueue, such as one after a resume, is safe. The priority stored is the
+ * computed one: overrides are applied when the queue is read, so an override
+ * set after an item was enqueued still reorders it.
+ */
+function decideEnqueue(
+  queue: ReadyEntry[],
+  entry: ReadyEntry,
+): ReadyEntry[] | null {
+  if (queue.some((queued) => queued.item === entry.item)) return null;
+  return [...queue, entry];
+}
+
+/** Removing an item that is not queued changes nothing. */
+function decideDequeue(
+  queue: ReadyEntry[],
+  item: string,
+): ReadyEntry[] | null {
+  if (!queue.some((queued) => queued.item === item)) return null;
+  return queue.filter((queued) => queued.item !== item);
+}
+
+/** The next item by effective priority, then age, then stable issue ID. */
+function nextReady(
+  queue: ReadyEntry[],
+  journal: OverrideEntry[],
+): { entry: ReadyEntry; priority: Priority } | null {
+  const picked = pickNext(
+    queue.map((entry) => ({
+      item: entry.item,
+      stableId: entry.stableId,
+      createdAt: entry.createdAt,
+      priority: effectivePriority(entry.computed, journal, entry.item),
+    })),
+  );
+  if (picked === null) return null;
+  return {
+    entry: queue.find((entry) => entry.item === picked.item)!,
+    priority: picked.priority,
+  };
+}
+
 type WipLease = {
   epoch: number;
   holder: string | null;
@@ -548,6 +598,8 @@ function validateDeliveryUnits(children: DeliveryChild[]): void {
 
 const leaseName = "wip-lease";
 const overridesName = "priority-overrides";
+const queueName = "ready-queue";
+const nextReadyName = "next-ready";
 const pauseName = (item: string) => `pause-${encodeURIComponent(item)}`;
 const deliveryName = (parent: string) =>
   `delivery-${encodeURIComponent(parent)}`;
@@ -560,6 +612,9 @@ export const testing = {
   decideRelease,
   decideResume,
   decideOverride,
+  decideEnqueue,
+  decideDequeue,
+  nextReady,
   releaseLeaseForPause,
   validateDeliveryUnits,
   pauseDigest,
@@ -1345,6 +1400,32 @@ export const extension = {
       lifetime: "infinite",
       garbageCollection: 100,
     },
+    readyQueue: {
+      description:
+        "Items whose plan is approved and that are waiting for the WIP lease.",
+      schema: z.object({
+        entries: z.array(z.object({
+          item: z.string().min(1),
+          stableId: z.string().min(1),
+          createdAt: z.string().min(1),
+          computed: z.enum(["P0", "P1", "P2", "P3"]),
+        })),
+      }),
+      lifetime: "infinite",
+      garbageCollection: 100,
+    },
+    nextReady: {
+      description:
+        "The item the scheduler should lease next. Written by the read-only next_ready.",
+      schema: z.object({
+        item: z.string().nullable(),
+        stableId: z.string().nullable(),
+        priority: z.enum(["P0", "P1", "P2", "P3"]).nullable(),
+        queued: z.number().int().nonnegative(),
+      }),
+      lifetime: "1h",
+      garbageCollection: 5,
+    },
     answer: {
       description: "Idempotent stagecraft tracker operation answer.",
       schema: z.object({
@@ -1663,6 +1744,95 @@ export const extension = {
               deliveryName(args.parent),
               args,
             ),
+          ],
+        };
+      },
+    },
+    enqueue_item: {
+      description:
+        "Queue an item whose plan is approved. Idempotent for an item already queued.",
+      arguments: z.object({
+        item: z.string().min(1),
+        stableId: z.string().min(1),
+        createdAt: z.string().min(1),
+        facts: z.object({
+          securityConfirmed: z.boolean().optional(),
+          releaseBlockingRegression: z.boolean().optional(),
+          supportedUserRegression: z.boolean().optional(),
+          requiredUpdate: z.boolean().optional(),
+          reproducibleBug: z.boolean().optional(),
+          acceptedMaintenance: z.boolean().optional(),
+        }).strict(),
+      }).strict(),
+      execute: async (
+        args: {
+          item: string;
+          stableId: string;
+          createdAt: string;
+          facts: PriorityFacts;
+        },
+        context: Context,
+      ) => {
+        const stored = await context.readResource(queueName);
+        const queue = Array.isArray(stored?.entries)
+          ? stored.entries as ReadyEntry[]
+          : [];
+        const next = decideEnqueue(queue, {
+          item: args.item,
+          stableId: args.stableId,
+          createdAt: args.createdAt,
+          computed: computePriority(args.facts),
+        });
+        return {
+          dataHandles: [
+            await context.writeResource("readyQueue", queueName, {
+              entries: next ?? queue,
+            }),
+          ],
+        };
+      },
+    },
+    dequeue_item: {
+      description:
+        "Remove an item from the ready queue. Idempotent for an item that is not queued.",
+      arguments: z.object({ item: z.string().min(1) }).strict(),
+      execute: async (args: { item: string }, context: Context) => {
+        const stored = await context.readResource(queueName);
+        const queue = Array.isArray(stored?.entries)
+          ? stored.entries as ReadyEntry[]
+          : [];
+        const next = decideDequeue(queue, args.item);
+        return {
+          dataHandles: [
+            await context.writeResource("readyQueue", queueName, {
+              entries: next ?? queue,
+            }),
+          ],
+        };
+      },
+    },
+    next_ready: {
+      description:
+        "Report the item to lease next, by effective priority, then age, then stable issue ID. Does not change the queue.",
+      arguments: z.object({}).strict(),
+      execute: async (_args: Record<string, never>, context: Context) => {
+        const stored = await context.readResource(queueName);
+        const queue = Array.isArray(stored?.entries)
+          ? stored.entries as ReadyEntry[]
+          : [];
+        const overrides = await context.readResource(overridesName);
+        const journal = Array.isArray(overrides?.entries)
+          ? overrides.entries as OverrideEntry[]
+          : [];
+        const picked = nextReady(queue, journal);
+        return {
+          dataHandles: [
+            await context.writeResource("nextReady", nextReadyName, {
+              item: picked?.entry.item ?? null,
+              stableId: picked?.entry.stableId ?? null,
+              priority: picked?.priority ?? null,
+              queued: queue.length,
+            }),
           ],
         };
       },

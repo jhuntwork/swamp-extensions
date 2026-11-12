@@ -137,3 +137,24 @@ lock serializes concurrent callers.
 - **Delivery units.** `set_delivery_units` stores a parent's repository-specific
   children and rejects duplicates, unknown dependencies and cycles. It stores
   and validates only.
+
+## Ready queue
+
+The scheduler leases items from a queue of those whose plan is approved. The
+`mere-issue` factory has no ready stage, so an item becomes ready by being
+queued.
+
+- `enqueue_item` queues an item with its stable ID, creation time and triage
+  facts, and stores the priority computed from those facts. Queueing an item
+  that is already queued changes nothing, so a repeat, such as the one after a
+  resume, is safe.
+- `dequeue_item` removes an item. Removing one that is not queued changes
+  nothing.
+- `next_ready` is read-only. It reports the item to lease next, ordered by
+  effective priority, then age, then stable issue ID, and does not change the
+  queue. Recorded overrides are applied when the queue is read, so an override
+  set after an item was queued still reorders it.
+
+The scheduler dequeues an item after it acquires the lease, and acquires first,
+so a failure cannot drop an item that has no lease. A paused item that resumes
+as `ready` has to be queued again to be leased again.
