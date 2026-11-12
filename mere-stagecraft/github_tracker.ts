@@ -1035,9 +1035,12 @@ async function operateOne(
       const page = await enumerateIssues(repo, after, limit);
       return {
         result: {
-          issues: page.issues.map((issue) =>
-            ticket(repo, issue, relations.store.relations)
-          ),
+          // The immutable node ID rides on each ticket so a caller can build
+          // links without matching a flat list to the tickets by position.
+          issues: page.issues.map((issue) => ({
+            ...ticket(repo, issue, relations.store.relations),
+            nodeId: String((issue as Resource).id),
+          })),
           checkpoint: page.checkpoint,
         },
       };

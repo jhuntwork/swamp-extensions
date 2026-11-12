@@ -158,3 +158,8 @@ queued.
 The scheduler dequeues an item after it acquires the lease, and acquires first,
 so a failure cannot drop an item that has no lease. A paused item that resumes
 as `ready` has to be queued again to be leased again.
+
+Each issue `enumerate_issues` returns carries its immutable GitHub `nodeId`, so
+a caller can pair an issue with its node ID directly. The checkpoint's `emitted`
+list is still a flat list of node IDs and must not be matched to tickets by
+position.

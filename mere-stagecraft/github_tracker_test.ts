@@ -124,6 +124,7 @@ Deno.test("enumerate_issues uses both states and returns a final-page checkpoint
       ((result.issues as Resource[])[0].status as Resource).id,
       "status:done",
     );
+    assertEquals((result.issues as Resource[])[0].nodeId, "I_1");
   } finally {
     testing.resetGhForTest();
   }
