@@ -194,3 +194,32 @@ Deno.test("output bounds are checked before parsing", () => {
     "pi-output-limit",
   );
 });
+
+Deno.test("a verified provider extension is loaded by path while discovery stays off", () => {
+  const plain = snapshotInvocation("kiro-native/claude-haiku-5.5", "hello");
+  assert(plain.args.includes("--no-extensions") && !plain.args.includes("-e"));
+  const withExtension = snapshotInvocation(
+    "kiro-native/claude-haiku-5.5",
+    "hello",
+    "/opt/pi/ext/kiro.ts",
+  );
+  const at = withExtension.args.indexOf("-e");
+  assert(withExtension.args.includes("--no-extensions") && at > 0);
+  assert(withExtension.args[at + 1] === "/opt/pi/ext/kiro.ts");
+  assert(withExtension.args.includes("--no-tools"));
+  assert(
+    withExtension.stdin === "hello" && !withExtension.args.includes("hello"),
+  );
+});
+
+Deno.test("a provider extension path must be absolute and plain", () => {
+  for (
+    const path of ["kiro.ts", "../kiro.ts", "/a b/kiro.ts", "/a/$(x)/k.ts", ""]
+  ) {
+    if (path === "") continue;
+    refuses(
+      () => snapshotInvocation("kiro-native/claude-haiku-5.5", "hello", path),
+      "provider extension must be an absolute path",
+    );
+  }
+});

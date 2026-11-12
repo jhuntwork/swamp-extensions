@@ -10,13 +10,25 @@ export const Classification = z.strictObject({
 
 /** Fixed arguments for a snapshot-only task using the host's stored Pi login.
  * The supplied prompt goes to stdin, never argv or shell syntax. Tool-using
- * stages require a different, OS-enforced execution boundary.
+ * stages require a different, OS-enforced execution boundary. Extension
+ * discovery is off; `providerExtension` names one already-verified file to load,
+ * for a model that only a provider extension supplies.
  */
-export function snapshotInvocation(model: string, prompt: string) {
+export function snapshotInvocation(
+  model: string,
+  prompt: string,
+  providerExtension?: string,
+) {
   if (!/^[a-z0-9][a-z0-9_-]*\/[a-zA-Z0-9][a-zA-Z0-9._/-]*$/.test(model)) {
     throw new Error("model must be an explicit provider/model ID");
   }
   if (!prompt.trim()) throw new Error("empty prompt");
+  if (
+    providerExtension !== undefined &&
+    !/^\/[A-Za-z0-9._/-]+$/.test(providerExtension)
+  ) {
+    throw new Error("provider extension must be an absolute path");
+  }
   return {
     args: [
       "--print",
@@ -25,6 +37,8 @@ export function snapshotInvocation(model: string, prompt: string) {
       "--no-session",
       "--no-tools",
       "--no-extensions",
+      // Only an explicitly verified provider extension is loaded, never a discovered one.
+      ...(providerExtension ? ["-e", providerExtension] : []),
       "--no-mcp",
       "--no-skills",
       "--no-prompt-templates",
