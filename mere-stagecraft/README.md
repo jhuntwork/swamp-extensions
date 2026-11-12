@@ -112,9 +112,12 @@ write, and all of them must run against one model instance so Swamp's per-model
 lock serializes concurrent callers.
 
 - **Priority.** `set_override` appends a maintainer override to an append-only
-  journal with who, why, the old value and the new value. A recorded override
-  always wins over a later computed priority. Ready items are ordered by
-  effective priority, then age, then stable issue ID.
+  journal with who, why, the old value and the new value. The old value is never
+  taken from the caller: it is the item's last override, or the computed
+  priority the caller supplies when there is none. Overriding to the value
+  already in effect fails with `override-noop`. A recorded override always wins
+  over a later computed priority. Ready items are ordered by effective priority,
+  then age, then stable issue ID.
 - **WIP lease.** `acquire_lease` takes the one global lease only when it is free
   and returns an epoch one higher than any before it. The epoch and the holder
   are one record written once per acquire, so a failed write changes nothing and
@@ -123,10 +126,14 @@ lock serializes concurrent callers.
   A held lease fails an acquire with `lease-held`. A lease is never released by
   elapsed time.
 - **Pause and resume.** `pause_item` records who paused an item, why, and the
-  state it was paused from, under an id that names that pause. `resume_item`
-  needs that id and fails with `pause-mismatch` for any other. An item paused
-  from `in-progress` resumes as `ready`, because pausing released its lease and
-  it must acquire it again; every other state is restored as recorded.
+  state it was paused from, under an id that names that pause. If the item holds
+  the WIP lease, the same call releases it, keeping the epoch. The pause is
+  written first, so a failed release leaves the item paused with the lease still
+  held, which keeps the WIP limit; calling `pause_item` again for that item
+  repairs the lease without creating a second pause. `resume_item` needs the
+  pause id and fails with `pause-mismatch` for any other. An item paused from
+  `in-progress` resumes as `ready`, because pausing released its lease and it
+  must acquire it again; every other state is restored as recorded.
 - **Delivery units.** `set_delivery_units` stores a parent's repository-specific
   children and rejects duplicates, unknown dependencies and cycles. It stores
   and validates only.

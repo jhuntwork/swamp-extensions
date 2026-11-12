@@ -311,6 +311,38 @@ function effectivePriority(
   return lastOverride(journal, item)?.to ?? computed;
 }
 
+/**
+ * The journal's old value is never taken from the caller. It is the item's last
+ * override when there is one, and otherwise the computed priority. Overriding to
+ * the value already in effect records nothing and is refused.
+ */
+function decideOverride(
+  journal: OverrideEntry[],
+  args: {
+    item: string;
+    by: string;
+    reason: string;
+    computed: Priority;
+    to: Priority;
+  },
+  at: string,
+): OverrideEntry {
+  const from = effectivePriority(args.computed, journal, args.item);
+  if (from === args.to) {
+    throw new Error(
+      `override-noop: ${args.item} already has effective priority ${from}`,
+    );
+  }
+  return {
+    item: args.item,
+    by: args.by,
+    reason: args.reason,
+    from,
+    to: args.to,
+    at,
+  };
+}
+
 type QueueEntry = {
   item: string;
   stableId: string;
@@ -378,6 +410,25 @@ function decideRelease(
     );
   }
   return { epoch: lease.epoch, holder: null, acquiredAt: null, reason };
+}
+
+/**
+ * Pausing an item that holds the WIP lease releases it, so the item can return
+ * to ready and acquire it again. Returns the released lease, or null when the
+ * item does not hold it. The holder is the work item's key.
+ */
+function releaseLeaseForPause(
+  lease: Resource | null,
+  item: string,
+): WipLease | null {
+  const current = readLease(lease);
+  if (current.holder !== item) return null;
+  return {
+    epoch: current.epoch,
+    holder: null,
+    acquiredAt: null,
+    reason: `interrupted: paused ${item}`,
+  };
 }
 
 const lifecycleStates = [
@@ -508,6 +559,8 @@ export const testing = {
   decideAcquire,
   decideRelease,
   decideResume,
+  decideOverride,
+  releaseLeaseForPause,
   validateDeliveryUnits,
   pauseDigest,
   checkIntakePage,
@@ -1464,12 +1517,12 @@ export const extension = {
     },
     set_override: {
       description:
-        "Record a maintainer priority override. The journal is append-only.",
+        "Record a maintainer priority override. The journal is append-only. The old value is the item's last override, or the priority the caller supplies as computed when there is none.",
       arguments: z.object({
         item: z.string().min(1),
         by: z.string().min(1),
         reason: z.string().min(1),
-        from: z.enum(["P0", "P1", "P2", "P3"]),
+        computed: z.enum(["P0", "P1", "P2", "P3"]),
         to: z.enum(["P0", "P1", "P2", "P3"]),
       }).strict(),
       execute: async (
@@ -1477,7 +1530,7 @@ export const extension = {
           item: string;
           by: string;
           reason: string;
-          from: Priority;
+          computed: Priority;
           to: Priority;
         },
         context: Context,
@@ -1486,11 +1539,11 @@ export const extension = {
         const entries = Array.isArray(stored?.entries)
           ? stored.entries as OverrideEntry[]
           : [];
-        entries.push({ ...args, at: new Date().toISOString() });
+        const entry = decideOverride(entries, args, new Date().toISOString());
         return {
           dataHandles: [
             await context.writeResource("priorityOverrides", overridesName, {
-              entries,
+              entries: [...entries, entry],
             }),
           ],
         };
@@ -1498,7 +1551,7 @@ export const extension = {
     },
     pause_item: {
       description:
-        "Pause an item, recording who, why and the state it was paused from.",
+        "Pause an item, recording who, why and the state it was paused from. Releases the WIP lease if the item holds it. Calling it again for an already paused item only repairs a stuck lease.",
       arguments: z.object({
         item: z.string().min(1),
         pausedBy: z.string().min(1),
@@ -1515,31 +1568,43 @@ export const extension = {
         context: Context,
       ) => {
         const name = pauseName(args.item);
-        if (activePause(await context.readResource(name)) !== null) {
-          throw new Error(
-            "already-paused: the item already has an active pause",
+        const existing = activePause(await context.readResource(name));
+        // The pause record is written first. If releasing the lease then fails,
+        // the item is paused and the lease is stuck, which keeps the WIP limit
+        // and is repaired by calling pause_item again. The other order could
+        // leave a working item with no lease.
+        let handle: { name: string };
+        if (existing !== null) {
+          handle = { name };
+        } else {
+          const at = new Date().toISOString();
+          const record: PauseRecord = {
+            id: await pauseDigest([
+              args.item,
+              args.pausedBy,
+              args.reason,
+              args.priorState,
+              at,
+            ]),
+            item: args.item,
+            pausedBy: args.pausedBy,
+            reason: args.reason,
+            priorState: args.priorState,
+            pausedAt: at,
+          };
+          handle = await context.writeResource("pauseRecord", name, record);
+        }
+        const released = releaseLeaseForPause(
+          await context.readResource(leaseName),
+          args.item,
+        );
+        const handles = [handle];
+        if (released !== null) {
+          handles.push(
+            await context.writeResource("wipLease", leaseName, released),
           );
         }
-        const at = new Date().toISOString();
-        const record: PauseRecord = {
-          id: await pauseDigest([
-            args.item,
-            args.pausedBy,
-            args.reason,
-            args.priorState,
-            at,
-          ]),
-          item: args.item,
-          pausedBy: args.pausedBy,
-          reason: args.reason,
-          priorState: args.priorState,
-          pausedAt: at,
-        };
-        return {
-          dataHandles: [
-            await context.writeResource("pauseRecord", name, record),
-          ],
-        };
+        return { dataHandles: handles };
       },
     },
     resume_item: {
