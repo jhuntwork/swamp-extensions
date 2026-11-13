@@ -57,6 +57,23 @@ implementation and a baseSha it was cut from:
 5. check the pushed diff is non-empty and only touches `allowedPaths`;
 6. plan, create and read back the pull request with `@jeremy/github-pr`.
 
+```sh
+swamp workflow run @jeremy/mere-delivery/deliver-change \
+  --input worktreePath=/path/to/mere-worktree \
+  --input branch=fix-repo-cache-leak \
+  --input baseSha=<40-character commit the branch was cut from> \
+  --input 'allowedPaths:json=["src/repo_sources.zig"]' \
+  --input 'commitMessage=Fix a leak in the repo cache' \
+  --input 'title=Fix a leak in the repo cache' \
+  --input 'body=The cache buffer was not freed when the download failed. Fixes #42.' \
+  --input profile=mere \
+  --input repository=jhuntwork/mere \
+  --input prBinding=mere-pr \
+  --input issue=42 \
+  --input checkName=repository-validation \
+  --input 'checkDetail=Format check, tests, and build covered the change.'
+```
+
 The workflow never merges. It carries no credentials; the caller supplies a
 vault-backed `@jeremy/github-pr` binding as `prBinding`. When `issue` is set,
 the pull request body must reference it.
