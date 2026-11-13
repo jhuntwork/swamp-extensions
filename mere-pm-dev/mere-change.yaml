@@ -3,8 +3,8 @@ name: "@jeremy/mere-change"
 description: >-
   Deliver one scoped implementation-ready change from an existing isolated
   Mere candidate: validate with the supplied Mere source model, commit and push
-  the allowed paths, create and verify a change packet, then create and verify
-  the planned pull request. Prepare the candidate first with
+  the allowed paths, then plan, create and verify
+  the pull request. Prepare the candidate first with
   @jeremy/mere-change-prepare. This workflow contains no credentials or model
   bindings.
 version: 1
@@ -23,7 +23,7 @@ inputs:
     baseSha:
       type: string
       pattern: '^[0-9a-fA-F]{40,64}$'
-      description: Immutable main commit used as branch start and packet base.
+      description: Immutable main commit used as branch start and change base.
     proposal:
       type: string
       minLength: 1
@@ -234,67 +234,9 @@ jobs:
         dataOutputOverrides:
           - specName: diffResult
             lifetime: workflow
-      - name: packet
-        dependsOn:
-          - step: changed-paths
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelType: "@jeremy/change-packet"
-          modelName: ${{ "mere-packet-" + run.id }}
-          methodName: create
-          inputs:
-            targetRepository: jhuntwork/mere
-            sourceRepository: jhuntwork/mere
-            base:
-              ref: main
-              sha: ${{ inputs.baseSha }}
-            head:
-              ref: ${{ inputs.branch }}
-              sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
-            changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].attributes.files }}
-            checks:
-              - name: repository-validation
-                required: true
-                outcome: passed
-                evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/test" }}
-                detail: Full tests, portable build, and built CLI smoke succeeded.
-            submission:
-              title: ${{ inputs.title }}
-              body: ${{ inputs.body }}
-              draft: ${{ inputs.draft }}
-        dataOutputOverrides:
-          - specName: packet
-            lifetime: workflow
-      - name: verify-packet
-        dependsOn:
-          - step: packet
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelType: "@jeremy/change-packet"
-          modelName: ${{ "mere-packet-" + run.id }}
-          methodName: verify
-          inputs:
-            packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-      - name: assert-packet
-        dependsOn:
-          - step: verify-packet
-            condition:
-              type: succeeded
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.valid == true &&
-            data.query('modelName == "mere-packet-' + run.id + '" && specName == "verification" && tags.workflowRunId == "' + run.id + '"')[0].attributes.readiness.ready == true
-          message: Delivery packet failed integrity or readiness verification.
-          severity: high
       - name: plan-pr
         dependsOn:
-          - step: assert-packet
+          - step: changed-paths
             condition:
               type: succeeded
         task:
@@ -302,8 +244,27 @@ jobs:
           modelIdOrName: ${{ inputs.prModel }}
           methodName: planPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: jhuntwork/mere
+              sourceRepository: jhuntwork/mere
+              base:
+                ref: main
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
+              changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].attributes.files }}
+              checks:
+                - name: repository-validation
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/test" }}
+                  detail: Full tests, portable build, and built CLI smoke succeeded.
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: ${{ inputs.draft }}
       - name: apply-pr
         dependsOn:
           - step: plan-pr
@@ -314,8 +275,27 @@ jobs:
           modelIdOrName: ${{ inputs.prModel }}
           methodName: applyPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: jhuntwork/mere
+              sourceRepository: jhuntwork/mere
+              base:
+                ref: main
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
+              changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].attributes.files }}
+              checks:
+                - name: repository-validation
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/test" }}
+                  detail: Full tests, portable build, and built CLI smoke succeeded.
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: ${{ inputs.draft }}
             plan: >-
               ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
       - name: verify-pr
@@ -328,7 +308,26 @@ jobs:
           modelIdOrName: ${{ inputs.prModel }}
           methodName: verifyPr
           inputs:
-            packet: >-
-              ${{ data.query('modelName == "mere-packet-' + run.id + '" && specName == "packet" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            change:
+              schemaVersion: 1
+              targetRepository: jhuntwork/mere
+              sourceRepository: jhuntwork/mere
+              base:
+                ref: main
+                sha: ${{ inputs.baseSha }}
+              head:
+                ref: ${{ inputs.branch }}
+                sha: ${{ data.findBySpec("mere-worktree-" + run.id, "commitResult")[0].attributes.sha }}
+              changedPaths: ${{ data.findBySpec("mere-worktree-" + run.id, "diffResult")[0].attributes.files }}
+              checks:
+                - name: repository-validation
+                  required: true
+                  outcome: passed
+                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/test" }}
+                  detail: Full tests, portable build, and built CLI smoke succeeded.
+              submission:
+                title: ${{ inputs.title }}
+                body: ${{ inputs.body }}
+                draft: ${{ inputs.draft }}
             result: >-
               ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}

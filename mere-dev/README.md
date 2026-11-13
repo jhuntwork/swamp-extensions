@@ -89,7 +89,7 @@ recipe contribution path before review delivery:
 3. import the built outputs into a named local repository;
 4. install an explicit package set into an isolated `@jeremy/mere-shell` profile;
 5. run an exact argv smoke check without shell interpretation;
-6. commit only approved paths, push without force, create and verify a change packet,
+6. commit only approved paths, push without force,
    and create and read back a pull request.
 
 The workflow intentionally packages no model instances, repository credentials,
@@ -100,9 +100,7 @@ or vault values. Before running it, create:
   the same `mereRoot` and Mere version; pin both bindings when reproducibility is
   required, while `latest` resolves from the same hosted GitHub release source;
 - an `@jeremy/github-pr` binding (default name `merelinux-pr`) scoped to
-  `jhuntwork/merelinux` and the operator's vault credential;
-- a forge-neutral change-packet binding named `mere-change-packets-20260821`,
-  or adapt the installed workflow to the workspace's compatible packet binding.
+  `jhuntwork/merelinux` and the operator's vault credential.
 
 The installed workflow verifies that the development and smoke bindings actually
 reported the same root and Mere version. Alternative binding names can be passed

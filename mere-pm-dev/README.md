@@ -62,8 +62,8 @@ This package distributes an explicit two-phase delivery path:
    in that isolated candidate.
 2. `@jeremy/mere-change` accepts that candidate, runs this model's full test,
    portable baseline build, and `describe` smoke profile, stages only
-   `allowedPaths`, pushes a non-force branch, and creates/validates a change
-   packet and matching same-repository pull request.
+   `allowedPaths`, pushes a non-force branch, and creates and verifies a
+   same-repository pull request.
 
 The separation is functional, not an approval pause: it gives implementation a
 real candidate worktree while keeping the delivery run bound to its validation,
@@ -71,9 +71,8 @@ commit, push, evidence, and PR operations. `@jeremy/mere-change-prepare` has
 no commit, push, pull-request, or credential-bearing binding.
 
 Neither workflow carries credentials or local model instances. Each creates
-disposable `@jeremy/mere-pm-dev` validation and `@jeremy/change-packet`
-evidence models as needed. A workspace supplies only `prModel` to the delivery
-workflow: a vault-backed `@jeremy/github-pr` instance bound to
+a disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
+supplies only `prModel` to the delivery workflow: a vault-backed `@jeremy/github-pr` instance bound to
 `jhuntwork/mere`.
 
 The pull request is the review gate. The delivery workflow does not merge,
