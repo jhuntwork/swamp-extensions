@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@jeremy/mere"
-version: "2026.11.13.3"
-description: "Mere domain behaviors: source artifacts, a pinned toolchain, and reproducible rescue-image assembly."
+version: "2026.11.13.4"
+description: "Mere recipe behaviors: parsing, upstream version lookup, bumping, and rebuilding recipes, with a pinned toolchain."
 license: MIT
 repository: "https://github.com/jhuntwork/swamp-extensions"
 paths:
@@ -11,12 +11,9 @@ behaviors:
   - toolchain.ts
   - profile.ts
   - recipe.ts
-  - rescue_image.ts
 reports:
   - upstream_drift.ts
   - build_summary.ts
-  - work_cost.ts
-  - model_cost.ts
 workflows:
   - workflows/recipe-scan.yaml
   - workflows/recipe-bump.yaml
@@ -25,7 +22,6 @@ dependencies:
   - "@jeremy/mere-delivery"
   - "@jeremy/github-pr"
   - "@swamp/git"
-  - "@swamp/agent-runner"
 additionalFiles:
   - README.md
   - LICENSE.txt
@@ -35,4 +31,3 @@ platforms:
 labels:
   - mere
   - recipe
-  - rescue-image

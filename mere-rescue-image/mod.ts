@@ -2,8 +2,8 @@
 // ABOUTME: The behavior owns fixed-argv assembly and provenance checks; workflows own checkout and orchestration.
 // deno-lint-ignore-file no-import-prefix
 import { dirname, relative, resolve, sep } from "node:path";
-import { z } from "npm:zod@4";
-import { runChecked, runCommand } from "./models/_lib/runner.ts";
+import { z } from "npm:zod@4.4.3";
+import { runChecked, runCommand } from "./runner.ts";
 
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/;
 const REQUIRED_REPOSITORY = "github.com/jhuntwork/merelinux";
@@ -1402,12 +1402,20 @@ async function executeBuild(
 }
 
 /** Behavior that builds and verifies a provenance-bound rescue image. */
-export const behavior = {
-  type: "@jeremy/mere/rescue-image",
-  version: "2026.11.05.16",
+export const model = {
+  type: "@jeremy/mere-rescue-image",
+  version: "2026.11.13.1",
   description:
     "Build a reproducible x86_64 Mere rescue image from a verified detached Merelinux commit and an isolated workspace.",
   globalArguments: z.object({}),
+  upgrades: [{
+    toVersion: "2026.11.13.1",
+    description:
+      "Moved from @jeremy/mere/rescue-image to its own extension; the method, arguments, and resources are unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }],
   resources: {
     "rescue-build": {
       description: "Verified rescue-image build output and digest summary",

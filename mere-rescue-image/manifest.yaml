@@ -1,0 +1,29 @@
+manifestVersion: 1
+name: "@jeremy/mere-rescue-image"
+version: "2026.11.13.1"
+description: >-
+  Build and verify a reproducible x86_64 Mere rescue image from an immutable
+  MereLinux commit in an isolated workspace, with fixed-argv assembly and
+  provenance checks. Checkout and orchestration belong to the calling workflow.
+repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
+paths:
+  base: manifest
+models:
+  - mod.ts
+workflows: []
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+  - mod_test.ts
+platforms:
+  - linux-x86_64
+labels:
+  - mere
+  - rescue-image
+  - reproducible-build
+dependencies: []

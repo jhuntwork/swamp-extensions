@@ -4,7 +4,7 @@ import {
   normalizeRepository,
   onlyLoopMounts,
   unsafeDiskCommands,
-} from "../rescue_image.ts";
+} from "./mod.ts";
 
 Deno.test("rescue paths must remain below the Swamp workspace", () => {
   assertEquals(
