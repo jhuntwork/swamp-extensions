@@ -77,11 +77,6 @@ Implemented:
 - `@jeremy/mere/build-summary`: workflow report for recipe build outcomes,
   package outputs, durations, and failure phases.
 
-- `@jeremy/mere/model-cost`: workflow report for `@swamp/agent-runner` `run` and
-  `review` steps. It preserves missing provider usage as "not reported", records
-  model, provider, effort, outcome, tokens, cost and durations, and aggregates
-  totals by model within the workflow.
-
 ## Parser conformance
 
 Our recipe parser is separate from mere's, so `integration/conformance_test.ts`
