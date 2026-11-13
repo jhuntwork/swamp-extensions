@@ -37,11 +37,13 @@ swamp model method run my-mere-shell run \
   --input 'workdir=/home/user/project'
 ```
 
-`workdir` must be an absolute path under `/home`, `/var`, or `/run`. Those are the
-host directories `mere shell` shares into the namespace; `/tmp` inside it is a
-fresh private tmpfs, so a worktree in `/tmp` does not exist there. The run is
-refused before any download, naming the directories that work. Symlinks are
-resolved first, so a link into `/tmp` is refused too.
+`workdir` must be an absolute path that exists inside the namespace. `mere shell`
+shares `/home`, `/var`, `/run`, and `/dev` with the host and takes `/`, `/usr`,
+`/etc`, and the other system directories from the profile. `/tmp` is a fresh
+private tmpfs, so a directory below `/tmp` on the host does not exist there, and
+`/mnt`, `/sys`, and `/boot` are not mounted. Those are refused before any
+download, naming where to move the directory. Symlinks are resolved first, so a
+link into `/tmp` is refused too. Anything else is passed to `mere`.
 
 ## Upgrading from command strings
 

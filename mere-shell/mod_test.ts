@@ -8,7 +8,7 @@ import {
   ensureRoot,
   model,
   parseSHA256SUMS,
-  isExposedPath,
+  isUnreachablePath,
   requireReachableWorkdir,
   resolveMereRoot,
   runCommand,
@@ -121,12 +121,34 @@ Deno.test({
   },
 });
 
-Deno.test("only directories the shell shares with the host are reachable", () => {
-  for (const path of ["/home/u/work", "/var/tmp/x", "/run/user/1000", "/home"]) {
-    assertEquals(isExposedPath(path), true, path);
+Deno.test("only locations missing inside the namespace are unreachable", () => {
+  for (
+    const path of ["/tmp/work", "/tmp/a/b", "/mnt", "/mnt/x", "/sys/x", "/boot"]
+  ) {
+    assertEquals(isUnreachablePath(path), true, path);
   }
-  for (const path of ["/tmp/work", "/tmpfoo", "/homework", "/mnt/x", "/"]) {
-    assertEquals(isExposedPath(path), false, path);
+  for (
+    const path of [
+      "/",
+      "/tmp",
+      "/usr",
+      "/usr/share",
+      "/etc",
+      "/bin",
+      "/home/u/work",
+      "/var/tmp",
+      "/run",
+      "/tmpfoo",
+      "/mntx",
+    ]
+  ) {
+    assertEquals(isUnreachablePath(path), false, path);
+  }
+});
+
+Deno.test("system directories the smoke steps use are accepted", async () => {
+  for (const path of ["/", "/usr", "/etc"]) {
+    await requireReachableWorkdir(path);
   }
 });
 
@@ -136,7 +158,7 @@ Deno.test("an unreachable working directory is refused with the reason", async (
     await assertRejects(
       () => requireReachableWorkdir(dir),
       Error,
-      "/tmp is a private tmpfs",
+      "private tmpfs",
     );
   } finally {
     await Deno.remove(dir);
