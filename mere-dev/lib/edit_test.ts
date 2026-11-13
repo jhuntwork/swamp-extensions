@@ -2,7 +2,7 @@ import { assertEquals, assertRejects } from "./assert_test.ts";
 import { bumpRelease, setVersion } from "./edit.ts";
 import { parseRecipe } from "./kdl.ts";
 
-const FIXTURES = new URL("../../testdata/merelinux/recipes/", import.meta.url)
+const FIXTURES = new URL("../testdata/merelinux/recipes/", import.meta.url)
   .pathname;
 const load = (rel: string) => Deno.readTextFile(`${FIXTURES}${rel}/recipe.kdl`);
 const H1 = "a".repeat(64);

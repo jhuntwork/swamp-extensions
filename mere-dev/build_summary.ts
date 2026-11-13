@@ -78,7 +78,7 @@ function markdown(records: BuildRecord[]): string {
 
 /** Workflow report summarizing recipe build outcomes and produced packages. */
 export const report = {
-  name: "@jeremy/mere/build-summary",
+  name: "@jeremy/mere-dev/build-summary",
   description:
     "Summarize recipe build results, package outputs, durations, and failures recorded by a workflow.",
   scope: "workflow",

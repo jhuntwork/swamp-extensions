@@ -1,7 +1,7 @@
-import { assertEquals } from "../models/_lib/assert_test.ts";
-import { parseRecipe } from "../models/_lib/kdl.ts";
-import { runCommand } from "../models/_lib/runner.ts";
-import { sha256File } from "../toolchain.ts";
+import { assertEquals } from "../lib/assert_test.ts";
+import { parseRecipe } from "../lib/kdl.ts";
+import { runCommand } from "../lib/runner.ts";
+import { sha256OfFile as sha256File } from "../lib/build.ts";
 import { KNOWN_DIVERGENCES, mutations } from "./conformance_cases.ts";
 import { NETWORK } from "./harness.ts";
 import { join } from "node:path";

@@ -6,7 +6,7 @@ import {
   parseUpstreamOverride,
 } from "./kdl.ts";
 
-const FIXTURES = new URL("../../testdata/merelinux/recipes/", import.meta.url)
+const FIXTURES = new URL("../testdata/merelinux/recipes/", import.meta.url)
   .pathname;
 
 async function load(rel: string) {

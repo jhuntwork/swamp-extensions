@@ -7,13 +7,13 @@ import {
   type LookupInput,
   lookupLatest,
   RateLimited,
-} from "./models/_lib/upstream.ts";
-import { runCommand } from "./models/_lib/runner.ts";
+} from "./lib/upstream.ts";
+import { runCommand } from "./lib/runner.ts";
 import {
   bumpKind,
   compareVersions,
   normalizePatchSuffix,
-} from "./models/_lib/versions.ts";
+} from "./lib/versions.ts";
 
 const GlobalArgs = z.object({
   githubToken: z.string().default("").meta({ sensitive: true }).describe(
@@ -404,10 +404,19 @@ async function lookupOne(
 }
 
 /** Behavior that resolves upstream versions and hashes source artifacts. */
-export const behavior = {
-  type: "@jeremy/mere/source",
-  version: "2026.11.04.1",
-  description: "Mere upstream source artifacts. Draft: fetchHash only.",
+export const model = {
+  type: "@jeremy/mere-dev/source",
+  version: "2026.11.13.5",
+  description:
+    "Upstream version lookup for merelinux recipes, and source download and hashing for version bumps.",
+  upgrades: [{
+    toVersion: "2026.11.13.5",
+    description:
+      "Moved from @jeremy/mere/source to @jeremy/mere-dev/source. Methods, arguments, and resources are unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }],
   globalArguments: GlobalArgs,
   resources: {
     bump: {

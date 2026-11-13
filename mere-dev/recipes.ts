@@ -1,13 +1,9 @@
 import { z } from "npm:zod@4.1.12";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { parseRecipe, parseUpstreamOverride } from "./models/_lib/kdl.ts";
-import {
-  bumpRelease as editBumpRelease,
-  setVersion,
-} from "./models/_lib/edit.ts";
-import { findDependents, renderSummary } from "./models/_lib/bump.ts";
-import { runChecked, runCommand } from "./models/_lib/runner.ts";
+import { parseRecipe, parseUpstreamOverride } from "./lib/kdl.ts";
+import { bumpRelease as editBumpRelease, setVersion } from "./lib/edit.ts";
+import { findDependents, renderSummary } from "./lib/bump.ts";
+import { runChecked, runCommand } from "./lib/runner.ts";
 
 const GlobalArgs = z.object({
   repoUrl: z.string().min(1).default(
@@ -19,18 +15,10 @@ const GlobalArgs = z.object({
   checkoutPath: z.string().default("").describe(
     "Empty derives .swamp/mere/checkouts/merelinux under the repo.",
   ),
-  toolchain: z.string().default("mere").describe(
-    "Name of the @jeremy/mere/toolchain behavior whose provisioned mere " +
-      "binary and isolated root validate and build use.",
-  ),
   ensureCheckout: z.boolean().default(true).describe(
     "Clone or update the checkout through @swamp/git before reading. Set " +
       "false where runModel is unavailable (remote workers) and run an " +
       "ensure_checkout step first.",
-  ),
-  signingKey: z.string().default("").meta({ sensitive: true }).describe(
-    "Optional base64 Mere .key signing key. The key is written only to " +
-      "the isolated Mere root for build/import and is removed afterward.",
   ),
 });
 
@@ -109,72 +97,11 @@ const SetVersionArgs = z.object({
   allowHardcodedVersion: z.boolean().default(false),
 });
 
-const ValidationSchema = z.object({
-  recipe: z.string(),
-  path: z.string(),
-  ok: z.boolean(),
-  exitCode: z.number().int(),
-  output: z.string(),
-  mereVersion: z.string(),
-  durationMs: z.number().nonnegative(),
-  schemaVersion: z.literal(1),
-});
-
-const BuildSchema = z.object({
-  recipe: z.string(),
-  name: z.string(),
-  version: z.string(),
-  release: z.number().int(),
-  arch: z.string(),
-  ok: z.boolean(),
-  exitCode: z.number().int(),
-  noCache: z.boolean(),
-  durationMs: z.number().nonnegative(),
-  failingPhase: z.string().describe("Empty on success"),
-  errorLine: z.string().describe(
-    "mere's first error message, empty on success",
-  ),
-  outputs: z.array(z.object({
-    fileName: z.string(),
-    path: z.string(),
-    package: z.string(),
-    contentId: z.string().describe("The hash in mere's archive file name"),
-    sha256: z.string(),
-    bytes: z.number().int().nonnegative(),
-  })),
-  logTail: z.string(),
-  schemaVersion: z.literal(1),
-});
-
-const ImportArgs = z.object({
-  repository: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).default(
-    "local",
-  ).describe("Local development repository name under the isolated Mere root."),
-});
-
-const ImportResultSchema = z.object({
-  exitCode: z.number().int(),
-  stdout: z.string(),
-  stderr: z.string(),
-  durationMs: z.number().nonnegative(),
-  mereVersion: z.string(),
-  mereRoot: z.string(),
-  repository: z.string(),
-  keyFingerprint: z.string(),
-  success: z.boolean(),
-  error: z.string().optional(),
-});
-
 const RecipeCheckoutArgs = z.object({
   recipe: z.string().regex(/^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i),
   checkoutPath: z.string().min(1).describe(
     "The per-run worktree holding the recipe to check; absolute.",
   ),
-});
-
-const BuildArgs = RecipeCheckoutArgs.extend({
-  noCache: z.boolean().default(true).describe("As CI does."),
-  timeoutMinutes: z.number().int().min(1).max(240).default(60),
 });
 
 const ReleaseBumpArgs = RecipeCheckoutArgs;
@@ -239,10 +166,6 @@ type Context = {
     name: string,
     data: Record<string, unknown>,
   ) => Promise<{ name: string }>;
-  createFileWriter: (
-    spec: string,
-    name: string,
-  ) => { writeText(text: string): Promise<{ name: string }> };
   readModelData: (
     name: string,
     spec?: string,
@@ -306,260 +229,6 @@ async function readOverride(root: string, rel: string) {
   return parseUpstreamOverride(text, overridePath);
 }
 
-/** Pull the failing phase and mere's first error out of a build's output tail. */
-export function diagnose(
-  tail: string,
-): { failingPhase: string; errorLine: string } {
-  const lines = tail.split("\n");
-  let failingPhase = "";
-  for (const line of lines) {
-    const m = /^error (\S+) failed/.exec(line);
-    if (m) failingPhase = m[1];
-  }
-  const errorLine =
-    lines.map((l) => l.trim()).find((l) => l.startsWith("error:")) ??
-      lines.map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
-  return { failingPhase, errorLine: errorLine.slice(0, 400) };
-}
-
-function recipeFile(
-  args: { recipe: string; checkoutPath: string },
-): string {
-  if (!args.checkoutPath.startsWith("/")) {
-    throw new Error("checkoutPath must be an absolute path");
-  }
-  return join(args.checkoutPath, "recipes", args.recipe, "recipe.kdl");
-}
-
-/** The provisioned mere binary and root, from the toolchain behavior's data. */
-async function toolchainOf(
-  context: Context,
-): Promise<{ binary: string; root: string; version: string }> {
-  const name = GlobalArgs.parse(context.globalArgs).toolchain;
-  const records = await context.readModelData(name, "toolchain");
-  const data = records[0]?.attributes as
-    | { binaryPath?: string; root?: string; version?: string }
-    | undefined;
-  if (!data?.binaryPath || !data.root) {
-    throw new Error(
-      `toolchain "${name}" has no data; run its provision method first ` +
-        `(download mere with @svendowideit/github-release-install, then ` +
-        `provision with the archive path and sha256)`,
-    );
-  }
-  await Deno.stat(data.binaryPath);
-  return {
-    binary: data.binaryPath,
-    root: data.root,
-    version: data.version ?? "",
-  };
-}
-
-async function listOutputs(
-  dir: string,
-  version: string,
-  release: number,
-  arch: string,
-) {
-  const out = [];
-  const suffix = new RegExp(
-    `-${
-      version.replace(/[.+*?^$()|[\]\\]/g, "\\$&")
-    }-${release}-${arch}-([0-9a-f]{64})\\.pkg\\.tar\\.zst$`,
-  );
-  for await (const entry of Deno.readDir(dir)) {
-    if (!entry.isFile || !entry.name.endsWith(".pkg.tar.zst")) continue;
-    const match = suffix.exec(entry.name);
-    const path = join(dir, entry.name);
-    out.push({
-      fileName: entry.name,
-      path,
-      package: match ? entry.name.slice(0, match.index) : entry.name,
-      contentId: match?.[1] ?? "",
-      sha256: await sha256OfFile(path),
-      bytes: (await Deno.stat(path)).size,
-    });
-  }
-  return out.sort((a, b) => a.fileName.localeCompare(b.fileName));
-}
-
-async function sha256OfFile(path: string): Promise<string> {
-  const hash = createHash("sha256");
-  const file = await Deno.open(path, { read: true });
-  for await (const chunk of file.readable) hash.update(chunk);
-  return hash.digest("hex");
-}
-
-export function decodeSigningKey(value: string): Uint8Array {
-  const compact = value.replace(/\s+/g, "");
-  let decoded: string;
-  try {
-    decoded = atob(compact);
-  } catch {
-    throw new Error("signingKey must be base64-encoded Mere .key material");
-  }
-  const bytes = Uint8Array.from(
-    decoded,
-    (character) => character.charCodeAt(0),
-  );
-  if (
-    bytes.length !== 80 ||
-    new TextDecoder().decode(bytes.slice(0, 8)) !== "MEREKEY\0" ||
-    bytes[8] !== 1 || bytes[9] !== 2 || bytes[10] !== 1 || bytes[11] !== 0 ||
-    new DataView(bytes.buffer, bytes.byteOffset + 12, 4).getUint32(0, true) !==
-      64
-  ) {
-    throw new Error(
-      `signingKey must decode to an 80-byte Mere secret key, got ${bytes.length} bytes`,
-    );
-  }
-  return bytes;
-}
-
-function publicKeyFromSigningKey(secret: Uint8Array): Uint8Array {
-  const header = new Uint8Array([
-    0x4d,
-    0x45,
-    0x52,
-    0x45,
-    0x4b,
-    0x45,
-    0x59,
-    0x00,
-    0x01,
-    0x01,
-    0x01,
-    0x00,
-    0x20,
-    0x00,
-    0x00,
-    0x00,
-  ]);
-  return Uint8Array.from([...header, ...secret.slice(48)]);
-}
-
-async function removeLegacyRepositoryConfig(
-  root: string,
-  repository: string,
-): Promise<void> {
-  const configPath = join(root, "mere", "config.kdl");
-  let existing: string;
-  try {
-    existing = await Deno.readTextFile(configPath);
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) return;
-    throw error;
-  }
-  const marker = `repo "${repository}" {`;
-  const start = existing.indexOf(marker);
-  if (start < 0) return;
-  const close = existing.indexOf("}", start);
-  if (close < 0) throw new Error(`invalid Mere config: unterminated ${marker}`);
-  let begin = start;
-  if (begin > 0 && existing[begin - 1] === "\n") begin--;
-  let end = close + 1;
-  if (existing[end] === "\n") end++;
-  await Deno.writeTextFile(
-    configPath,
-    existing.slice(0, begin) + existing.slice(end),
-  );
-}
-
-async function removeUninitializedRepository(
-  root: string,
-  repository: string,
-): Promise<void> {
-  const repositoryDir = join(root, "mere", "dev", "repo", repository);
-  try {
-    const database = await Deno.stat(join(repositoryDir, "repo.db"));
-    if (database.isFile) return;
-  } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
-  }
-  await Deno.remove(repositoryDir, { recursive: true }).catch((error) => {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
-  });
-}
-
-/** Materialize the development key and isolated trust files for build/import. */
-async function prepareSigningKey(
-  binary: string,
-  root: string,
-  encoded: string,
-  signal: AbortSignal,
-): Promise<{ keyPath: string; home: string; fingerprint: string }> {
-  if (!encoded) {
-    throw new Error(
-      "recipe signingKey is empty; configure the vault-backed development key " +
-        "or run the explicit toolchain.generateDevKey procedure first",
-    );
-  }
-  const key = decodeSigningKey(encoded);
-  const home = join(root, "home");
-  const keyDir = join(home, ".mere", "keys");
-  const keyPath = join(keyDir, "mere.key");
-  const publicPath = join(keyDir, "mere.pub");
-  let wroteKey = false;
-  let complete = false;
-  try {
-    await Deno.mkdir(keyDir, { recursive: true, mode: 0o700 });
-    await Deno.writeFile(keyPath, key, { create: true, mode: 0o600 });
-    wroteKey = true;
-    await Deno.chmod(keyPath, 0o600);
-    await Deno.writeFile(publicPath, publicKeyFromSigningKey(key), {
-      create: true,
-    });
-    await Deno.chmod(publicPath, 0o644);
-    const fingerprintResult = await runCommand(
-      binary,
-      ["dev", "key", "fingerprint", publicPath],
-      { signal, timeoutMs: 30_000, maxOutputBytes: 4_096 },
-    );
-    if (fingerprintResult.exitCode !== 0) {
-      throw new Error(
-        `mere dev key fingerprint failed: ${
-          (fingerprintResult.stderr || fingerprintResult.stdout).trim()
-        }`,
-      );
-    }
-    const fingerprint = fingerprintResult.stdout.match(/[0-9a-f]{64}/i)?.[0]
-      ?.toLowerCase();
-    if (!fingerprint) {
-      throw new Error("mere returned no development key fingerprint");
-    }
-    complete = true;
-    return { keyPath, home, fingerprint };
-  } finally {
-    if (wroteKey && !complete) {
-      await Deno.remove(keyPath).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-      });
-    }
-  }
-}
-
-/** mere's workspace for the most recent build of this recipe tuple. */
-async function latestBuildLog(root: string, tuple: string, since: number) {
-  const base = join(root, "mere", "dev", "build");
-  let best: { path: string; mtime: number } | undefined;
-  try {
-    for await (const entry of Deno.readDir(base)) {
-      if (!entry.isDirectory || !entry.name.startsWith(`${tuple}-`)) continue;
-      const path = join(base, entry.name, "build.log");
-      try {
-        const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
-        // Only a log this build wrote: an older one would mislead.
-        if (mtime >= since - 1000 && (!best || mtime > best.mtime)) {
-          best = { path, mtime };
-        }
-      } catch { /* no log in this workspace */ }
-    }
-  } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
-  }
-  return best?.path;
-}
-
 const RECIPE_PATH = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i;
 
 /** Build the stable data instance name for a parsed recipe. */
@@ -594,10 +263,11 @@ async function listRecipes(root: string): Promise<string[]> {
 }
 
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
-export const behavior = {
-  type: "@jeremy/mere/recipe",
-  version: "2026.11.08.11",
-  description: "Read, validate, build, and import merelinux recipes.",
+export const model = {
+  type: "@jeremy/mere-dev/recipes",
+  version: "2026.11.13.5",
+  description:
+    "Read, scan, edit, and summarize merelinux recipes. Running mere on them belongs to @jeremy/mere-dev.",
   upgrades: [{
     toVersion: "2026.11.08.11",
     description:
@@ -605,6 +275,16 @@ export const behavior = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.5",
+    description:
+      "Moved from @jeremy/mere/recipe to @jeremy/mere-dev/recipes. The toolchain and signingKey global arguments, the validate, build and importOutputs methods, and their resources moved to the mere-dev behavior.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => {
+      const { toolchain: _toolchain, signingKey: _signingKey, ...rest } = old;
+      return rest;
+    },
   }],
   globalArguments: GlobalArgs,
   resources: {
@@ -645,40 +325,12 @@ export const behavior = {
       lifetime: "infinite",
       garbageCollection: 20,
     },
-    validation: {
-      description: "Result of `mere dev validate` on one recipe",
-      schema: ValidationSchema,
-      lifetime: "infinite",
-      garbageCollection: 20,
-    },
-    build: {
-      description: "Result of `mere dev build` on one recipe, with its outputs",
-      schema: BuildSchema,
-      lifetime: "infinite",
-      garbageCollection: 20,
-    },
-    import: {
-      description:
-        "Result of importing built package outputs into a local repository",
-      schema: ImportResultSchema,
-      lifetime: "infinite",
-      garbageCollection: 20,
-    },
     scan: {
       description:
         "Outcome of a tree scan, including recipes that failed to parse",
       schema: ScanSchema,
       lifetime: "infinite",
       garbageCollection: 20,
-    },
-  },
-  files: {
-    buildLog: {
-      description: "mere's build log for the latest build of a recipe",
-      contentType: "text/plain",
-      lifetime: "7d",
-      garbageCollection: 5,
-      streaming: false,
     },
   },
   methods: {
@@ -831,10 +483,17 @@ export const behavior = {
           /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i,
         ),
         sourceBinding: z.string().min(1).default("merelinux-upstream"),
+        devBinding: z.string().min(1).default("merelinux-recipe-validation")
+          .describe("The @jeremy/mere-dev behavior that built the recipe"),
         runId: z.string().min(1),
       }),
       execute: async (
-        args: { recipe: string; sourceBinding: string; runId: string },
+        args: {
+          recipe: string;
+          sourceBinding: string;
+          devBinding: string;
+          runId: string;
+        },
         context: Context,
       ) => {
         const name = args.recipe.split("/")[1];
@@ -850,7 +509,16 @@ export const behavior = {
           return found.attributes as Record<string, unknown>;
         };
         const change = await one(own, "change", `change-${name}`);
-        const build = await one(own, "build", `build-${name}`);
+        const build = await one(
+          args.devBinding,
+          "build-result",
+          "build-result",
+        );
+        if (build.recipe !== args.recipe) {
+          throw new Error(
+            `the latest build in ${args.devBinding} is for ${build.recipe}, not ${args.recipe}`,
+          );
+        }
         const bump = await one(args.sourceBinding, "bump", `bump-${name}`);
         if (!build.ok) throw new Error(`the build of ${name} did not succeed`);
         const recipes = (await context.readModelData(own, "recipe")).map((r) =>
@@ -878,162 +546,6 @@ export const behavior = {
           },
         );
         return { dataHandles: [handle] };
-      },
-    },
-    validate: {
-      description:
-        "Run `mere dev validate` on a recipe in a worktree: mere is the " +
-        "authority on whether a recipe is acceptable. Records the result, " +
-        "then throws if mere rejected it.",
-      kind: "action",
-      arguments: RecipeCheckoutArgs,
-      execute: async (
-        args: z.infer<typeof RecipeCheckoutArgs>,
-        context: Context,
-      ) => {
-        const tool = await toolchainOf(context);
-        const file = recipeFile(args);
-        const result = await runCommand(
-          tool.binary,
-          ["--root", tool.root, "dev", "validate", file],
-          {
-            signal: context.signal,
-            timeoutMs: 120_000,
-            maxOutputBytes: 16_384,
-          },
-        );
-        const output = (result.stderr || result.stdout).trim();
-        const handle = await context.writeResource(
-          "validation",
-          `validation-${args.recipe.split("/")[1]}`,
-          {
-            recipe: args.recipe,
-            path: `recipes/${args.recipe}/recipe.kdl`,
-            ok: result.exitCode === 0,
-            exitCode: result.exitCode,
-            output,
-            mereVersion: tool.version,
-            durationMs: result.durationMs,
-            schemaVersion: 1,
-          },
-        );
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `mere rejected ${args.recipe}: ${output.split("\n")[0]}`,
-          );
-        }
-        return { dataHandles: [handle] };
-      },
-    },
-    build: {
-      description:
-        "Run `mere dev build` on a recipe in a worktree, in the isolated " +
-        "root. Records the outputs (each package archive, its sha256 and " +
-        "size) read from mere's outputs directory, and the build log, then " +
-        "throws if the build failed.",
-      kind: "action",
-      arguments: BuildArgs,
-      execute: async (args: z.infer<typeof BuildArgs>, context: Context) => {
-        const tool = await toolchainOf(context);
-        const file = recipeFile(args);
-        const rel = `recipes/${args.recipe}/recipe.kdl`;
-        const parsed = parseRecipe(await Deno.readTextFile(file), rel);
-        const arch = Deno.build.arch;
-        const tuple = `${parsed.name}-${parsed.version}-${parsed.release}`;
-        const outputDir = join(
-          tool.root,
-          "mere",
-          "dev",
-          "outputs",
-          `${tuple}-${arch}`,
-        );
-        // A stale output from an earlier build must not pass for this one.
-        await Deno.remove(outputDir, { recursive: true }).catch((error) => {
-          if (!(error instanceof Deno.errors.NotFound)) throw error;
-        });
-        const startedAt = Date.now();
-        await removeUninitializedRepository(tool.root, "local");
-        await removeLegacyRepositoryConfig(tool.root, "local");
-        const globals = GlobalArgs.parse(context.globalArgs);
-        const prepared = await prepareSigningKey(
-          tool.binary,
-          tool.root,
-          globals.signingKey,
-          context.signal,
-        );
-        let result;
-        try {
-          result = await runCommand(
-            tool.binary,
-            [
-              "--root",
-              tool.root,
-              "dev",
-              "build",
-              ...(args.noCache ? ["--no-cache"] : []),
-              file,
-            ],
-            {
-              signal: context.signal,
-              timeoutMs: args.timeoutMinutes * 60_000,
-              maxOutputBytes: 65_536,
-              env: { HOME: prepared.home },
-            },
-          );
-        } finally {
-          await Deno.remove(prepared.keyPath).catch((error) => {
-            if (!(error instanceof Deno.errors.NotFound)) throw error;
-          });
-        }
-        const tail =
-          (result.stdout + (result.stderr ? "\n" + result.stderr : "")).trim();
-        const outputs = result.exitCode === 0
-          ? await listOutputs(outputDir, parsed.version, parsed.release, arch)
-          : [];
-        const { failingPhase, errorLine } = result.exitCode === 0
-          ? { failingPhase: "", errorLine: "" }
-          : diagnose(tail);
-        const handles = [];
-        const logPath = await latestBuildLog(tool.root, tuple, startedAt);
-        if (logPath) {
-          const log = await Deno.readTextFile(logPath);
-          handles.push(
-            await context.createFileWriter("buildLog", parsed.name).writeText(
-              log.length > 2_000_000 ? log.slice(-2_000_000) : log,
-            ),
-          );
-        }
-        handles.push(
-          await context.writeResource("build", `build-${parsed.name}`, {
-            recipe: args.recipe,
-            name: parsed.name,
-            version: parsed.version,
-            release: parsed.release,
-            arch,
-            ok: result.exitCode === 0,
-            exitCode: result.exitCode,
-            noCache: args.noCache,
-            durationMs: result.durationMs,
-            failingPhase,
-            errorLine,
-            outputs,
-            logTail: tail.split("\n").slice(-60).join("\n"),
-            schemaVersion: 1,
-          }),
-        );
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `mere dev build failed for ${args.recipe} (exit ${result.exitCode}) in ${
-              failingPhase || "an unknown phase"
-            }: ${errorLine}`,
-          );
-        }
-        if (outputs.length === 0) {
-          throw new Error(
-            `build of ${args.recipe} succeeded but produced no packages`,
-          );
-        }
-        return { dataHandles: handles };
       },
     },
     setVersion: {
@@ -1115,98 +627,6 @@ export const behavior = {
           schemaVersion: 1,
         });
         return { dataHandles: [handle] };
-      },
-    },
-    importOutputs: {
-      description:
-        "Import the latest build outputs into a named isolated Mere development " +
-        "repository. The signing key is materialized only for this call; " +
-        "the repository's public trust metadata remains inside the isolated root.",
-      kind: "action",
-      arguments: ImportArgs,
-      execute: async (
-        args: z.infer<typeof ImportArgs>,
-        context: Context,
-      ) => {
-        const started = performance.now();
-        const globals = GlobalArgs.parse(context.globalArgs);
-        let tool: { binary: string; root: string; version: string } | undefined;
-        let prepared:
-          | { keyPath: string; home: string; fingerprint: string }
-          | undefined;
-        let recorded = false;
-        try {
-          tool = await toolchainOf(context);
-          await removeLegacyRepositoryConfig(tool.root, args.repository);
-          prepared = await prepareSigningKey(
-            tool.binary,
-            tool.root,
-            globals.signingKey,
-            context.signal,
-          );
-          const result = await runCommand(
-            tool.binary,
-            [
-              "--root",
-              tool.root,
-              "dev",
-              "import",
-              args.repository,
-              "--key",
-              prepared.keyPath,
-              "--force",
-            ],
-            {
-              signal: context.signal,
-              timeoutMs: 30 * 60 * 1000,
-              maxOutputBytes: 64 * 1024,
-              env: { HOME: prepared.home },
-            },
-          );
-          const data = {
-            exitCode: result.exitCode,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            durationMs: performance.now() - started,
-            mereVersion: tool.version,
-            mereRoot: tool.root,
-            repository: args.repository,
-            keyFingerprint: prepared.fingerprint,
-            success: result.exitCode === 0,
-          };
-          const handle = await context.writeResource("import", "current", data);
-          recorded = true;
-          if (result.exitCode !== 0) {
-            throw new Error(
-              `mere dev import failed for ${args.repository}: ${
-                (result.stderr || result.stdout).split("\n")[0] ?? ""
-              }`,
-            );
-          }
-          return { dataHandles: [handle] };
-        } catch (error) {
-          if (!recorded) {
-            await context.writeResource("import", "current", {
-              exitCode: -1,
-              stdout: "",
-              stderr: "",
-              durationMs: performance.now() - started,
-              mereVersion: tool?.version ?? "",
-              mereRoot: tool?.root ?? "",
-              repository: args.repository,
-              keyFingerprint: prepared?.fingerprint ?? "",
-              success: false,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-          throw error instanceof Error ? error : new Error(String(error));
-        } finally {
-          if (prepared?.keyPath) {
-            await Deno.remove(prepared.keyPath).catch((error) => {
-              if (!(error instanceof Deno.errors.NotFound)) throw error;
-            });
-          }
-        }
       },
     },
     read: {

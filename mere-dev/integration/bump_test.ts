@@ -1,4 +1,4 @@
-import { assertEquals } from "../models/_lib/assert_test.ts";
+import { assertEquals } from "../lib/assert_test.ts";
 import { createRepo, NETWORK } from "./harness.ts";
 import { join } from "node:path";
 
@@ -54,21 +54,13 @@ Deno.test({
         ]
       ) await git(seed, ...a);
 
-      for (const pkg of ["github-pr", "mere-delivery"]) {
+      for (const pkg of ["github-pr", "mere-delivery", "mere-shell"]) {
         assertEquals(
           (await repo.swamp(["extension", "source", "add", join(ROOT, pkg)]))
             .code,
           0,
         );
       }
-      assertEquals(
-        (await repo.swamp([
-          "extension",
-          "pull",
-          "@svendowideit/github-release-install",
-        ])).code,
-        0,
-      );
       const create = async (type: string, name: string, ...args: string[]) =>
         assertEquals(
           (await repo.swamp([
@@ -83,54 +75,26 @@ Deno.test({
           `${name}`,
         );
       await create(
-        "@svendowideit/github-release-install",
-        "mere-release",
-        "--global-arg",
-        "repo=jhuntwork/mere",
-        "--global-arg",
-        "format=raw",
-        "--global-arg",
-        "checksumsName=SHA256SUMS",
-        "--global-arg",
-        "assetPattern=^(?<stem>mere)-(?<version>[^-]+)-(?<os>linux)-(?<arch>[^.]+)$",
-      );
-      const archive = join(repo.dir, ".swamp", "mere", "download", "mere");
-      const download = await repo.json([
-        "behavior",
-        "run",
-        "mere-release",
-        "download",
-        "--input",
-        "version=0.23.0",
-        "--input",
-        `outputPath=${archive}`,
-      ]);
-      const sha =
-        (download.dataArtifacts as { attributes: { sha256: string } }[])[0]
-          .attributes.sha256;
-      await create(
-        "@jeremy/mere/toolchain",
-        "mere",
+        "@jeremy/mere-dev",
+        "merelinux-recipe-validation",
         "--global-arg",
         "mereVersion=0.23.0",
       );
-      await repo.json([
-        "behavior",
-        "run",
-        "mere",
-        "provision",
-        "--input",
-        `archivePath=${archive}`,
-        "--input",
-        `sha256=${sha}`,
-      ]);
       await create(
-        "@jeremy/mere/recipe",
+        "@jeremy/mere-shell",
+        "merelinux-recipe-smoke",
+        "--global-arg",
+        "mereVersion=0.23.0",
+        "--global-arg",
+        `mereRoot=${join(repo.dir, ".swamp", "mere-dev", "root")}`,
+      );
+      await create(
+        "@jeremy/mere-dev/recipes",
         "merelinux",
         "--global-arg",
         `repoUrl=file://${remote}`,
       );
-      await create("@jeremy/mere/source", "merelinux-upstream");
+      await create("@jeremy/mere-dev/source", "merelinux-upstream");
       await create(
         "@jeremy/github-pr",
         "merelinux-pr",
@@ -145,18 +109,22 @@ Deno.test({
       );
 
       assertEquals(
-        (await repo.json(["workflow", "validate", "@jeremy/mere/recipe-bump"]))
+        (await repo.json(["workflow", "validate", "@jeremy/mere-dev/recipe-bump"]))
           .passed,
         true,
       );
       const run = await repo.json([
         "workflow",
         "run",
-        "@jeremy/mere/recipe-bump",
+        "@jeremy/mere-dev/recipe-bump",
         "--input",
         "recipe=core/inih",
         "--input",
         "version=63",
+        "--input",
+        'smokePackages:json=["inih"]',
+        "--input",
+        'smokeArgv:json=["true"]',
       ]);
       const jobs = run.jobs as {
         name: string;
@@ -166,6 +134,11 @@ Deno.test({
       const status = (job: string, step: string) =>
         jobs.find((j) => j.name === job)?.steps.find((s) => s.name === step)
           ?.status;
+      assertEquals(
+        jobs !== undefined,
+        true,
+        `the workflow did not run: ${JSON.stringify(run).slice(0, 300)}`,
+      );
       for (const step of ["scan", "plan"]) {
         assertEquals(status("prepare", step), "succeeded", step);
       }
@@ -177,6 +150,8 @@ Deno.test({
           "set-version",
           "validate",
           "build",
+          "import-outputs",
+          "smoke-installed-packages",
           "summarize",
         ]
       ) assertEquals(status("build", step), "succeeded", step);
