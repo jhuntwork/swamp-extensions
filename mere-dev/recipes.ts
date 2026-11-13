@@ -143,6 +143,32 @@ const DependentsSchema = z.object({
   schemaVersion: z.literal(1),
 });
 
+const BindingCheckSchema = z.object({
+  name: z.string().min(1),
+  expectedType: z.string().min(1),
+  found: z.boolean(),
+  actualType: z.string().describe("Empty when the binding was not found"),
+  ok: z.boolean(),
+});
+
+const PreflightSchema = z.object({
+  ok: z.boolean(),
+  checked: z.boolean().describe(
+    "False when this engine cannot look bindings up, so nothing was verified",
+  ),
+  bindings: z.array(BindingCheckSchema),
+  schemaVersion: z.literal(1),
+});
+
+const CheckBindingsArgs = z.object({
+  bindings: z.array(z.object({
+    name: z.string().min(1).describe("Name of the behavior binding"),
+    type: z.string().min(1).describe(
+      "The behavior type it must have, for example @jeremy/mere-shell",
+    ),
+  })).min(1),
+});
+
 const ScanSchema = z.object({
   commit: z.string(),
   ref: z.string(),
@@ -173,7 +199,21 @@ type Context = {
   runModel?: (options: Record<string, unknown>) => Promise<
     { ok: true } | { ok: false; error: { message: string } }
   >;
+  logger?: {
+    warn?: (message: string, fields?: Record<string, unknown>) => void;
+  };
+  definitionRepository?: {
+    findByNameGlobal(
+      name: string,
+    ): Promise<{ type: { normalized: string } } | null>;
+  };
 };
+
+/** Compare behavior types the way swamp does: case, `::`, `.` and spaces all mean `/`. */
+export function normalizeType(raw: string): string {
+  return raw.toLowerCase().replace(/::/g, "/").replace(/\s+/g, "/")
+    .replace(/\./g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "");
+}
 
 /** Resolve a recipe checkout path from the repo directory and optional override. */
 export function checkoutDir(repoDir: string, configured: string): string {
@@ -265,7 +305,7 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const model = {
   type: "@jeremy/mere-dev/recipes",
-  version: "2026.11.13.5",
+  version: "2026.11.13.6",
   description:
     "Read, scan, edit, and summarize merelinux recipes. Running mere on them belongs to @jeremy/mere-dev.",
   upgrades: [{
@@ -285,6 +325,13 @@ export const model = {
       const { toolchain: _toolchain, signingKey: _signingKey, ...rest } = old;
       return rest;
     },
+  }, {
+    toVersion: "2026.11.13.6",
+    description:
+      "Add the checkBindings method and preflight resource. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   globalArguments: GlobalArgs,
   resources: {
@@ -325,6 +372,13 @@ export const model = {
       lifetime: "infinite",
       garbageCollection: 20,
     },
+    preflight: {
+      description:
+        "Whether every binding a workflow needs exists with the right type",
+      schema: PreflightSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
     scan: {
       description:
         "Outcome of a tree scan, including recipes that failed to parse",
@@ -334,6 +388,59 @@ export const model = {
     },
   },
   methods: {
+    checkBindings: {
+      description:
+        "Check that each named behavior binding exists and has the expected type, and report every problem at once. Run first in a workflow so a missing binding fails before any download, build, or checkout, not after. Records the result, then fails if any binding is missing or has the wrong type. When the engine cannot look bindings up, records that nothing was checked and does not fail.",
+      kind: "read",
+      arguments: CheckBindingsArgs,
+      execute: async (
+        args: z.infer<typeof CheckBindingsArgs>,
+        context: Context,
+      ) => {
+        const repository = context.definitionRepository;
+        if (!repository?.findByNameGlobal) {
+          context.logger?.warn?.(
+            "This engine cannot look up bindings; skipping the binding check",
+          );
+          const handle = await context.writeResource("preflight", "preflight", {
+            ok: true,
+            checked: false,
+            bindings: [],
+            schemaVersion: 1,
+          });
+          return { dataHandles: [handle] };
+        }
+        const results = [];
+        for (const wanted of args.bindings) {
+          const found = await repository.findByNameGlobal(wanted.name);
+          const actualType = found?.type.normalized ?? "";
+          results.push({
+            name: wanted.name,
+            expectedType: wanted.type,
+            found: found !== null,
+            actualType,
+            ok: found !== null &&
+              actualType === normalizeType(wanted.type),
+          });
+        }
+        const ok = results.every((r) => r.ok);
+        const handle = await context.writeResource("preflight", "preflight", {
+          ok,
+          checked: true,
+          bindings: results,
+          schemaVersion: 1,
+        });
+        if (!ok) {
+          const problems = results.filter((r) => !r.ok).map((r) =>
+            r.found
+              ? `"${r.name}" is a ${r.actualType}, not a ${r.expectedType}`
+              : `no binding named "${r.name}" (create it with: swamp model create ${r.expectedType} ${r.name})`
+          );
+          throw new Error(`Missing or wrong bindings: ${problems.join("; ")}`);
+        }
+        return { dataHandles: [handle] };
+      },
+    },
     workspace: {
       description:
         "Compute the standard paths for one piece of work: the shared " +

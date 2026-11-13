@@ -122,9 +122,9 @@ Deno.test({
         "--input",
         "version=63",
         "--input",
-        'smokePackages:json=["inih"]',
+        'smokePackages:json=["inih-dev","busybox","pkgconf"]',
         "--input",
-        'smokeArgv:json=["true"]',
+        'smokeArgv:json=["pkg-config","--modversion","inih"]',
       ]);
       const jobs = run.jobs as {
         name: string;
@@ -139,7 +139,15 @@ Deno.test({
         true,
         `the workflow did not run: ${JSON.stringify(run).slice(0, 300)}`,
       );
-      for (const step of ["scan", "plan"]) {
+      for (
+        const step of [
+          "check-bindings",
+          "assert-meaningful-smoke",
+          "scan",
+          "assert-smoke-covers-recipe",
+          "plan",
+        ]
+      ) {
         assertEquals(status("prepare", step), "succeeded", step);
       }
       for (
