@@ -176,6 +176,45 @@ async function ensureBinary(
   return binaryPath;
 }
 
+/**
+ * Host directories that `mere shell` bind-mounts into the namespace. Anything
+ * else, including /tmp (a fresh tmpfs there), does not exist inside it.
+ */
+export const EXPOSED_HOST_ROOTS = ["/home", "/var", "/run"] as const;
+
+/** Whether an absolute, symlink-resolved path lies under a directory the namespace exposes. */
+export function isExposedPath(path: string): boolean {
+  return EXPOSED_HOST_ROOTS.some((root) =>
+    path === root || path.startsWith(`${root}/`)
+  );
+}
+
+/**
+ * Fail before any download when the working directory cannot be reached from
+ * inside the namespace, and say which directories can.
+ */
+export async function requireReachableWorkdir(workdir: string): Promise<void> {
+  if (!workdir.startsWith("/")) {
+    throw new Error(`workdir must be an absolute path: ${workdir}`);
+  }
+  let resolved: string;
+  try {
+    resolved = await Deno.realPath(workdir);
+  } catch (error) {
+    throw new Error(`workdir is not usable: ${workdir}: ${error}`);
+  }
+  if (!(await Deno.stat(resolved)).isDirectory) {
+    throw new Error(`workdir is not a directory: ${workdir}`);
+  }
+  if (!isExposedPath(resolved)) {
+    throw new Error(
+      `workdir ${resolved} is not visible inside the Mere shell. Only ${
+        EXPOSED_HOST_ROOTS.join(", ")
+      } are shared with the host; /tmp is a private tmpfs. Move the directory under one of them.`,
+    );
+  }
+}
+
 /** Select the physical Mere root, using `/` to share the host store. */
 export function resolveMereRoot(
   configuredRoot: string,
@@ -285,7 +324,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.11.13.1",
+  version: "2026.11.13.2",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -327,6 +366,13 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.2",
+    description:
+      "Reject a working directory the namespace cannot reach before any download, naming the directories that are shared. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     result: {
@@ -348,7 +394,7 @@ export const model = {
           "Exact command argv; argv[0] is the executable.",
         ),
         workdir: z.string().optional().describe(
-          "Working directory (bind-mounted into the namespace).",
+          "Absolute working directory. It must be under /home, /var, or /run, which the shell shares with the host; /tmp is not visible inside it.",
         ),
       }),
       // deno-lint-ignore no-explicit-any
@@ -369,6 +415,7 @@ export const model = {
         let mereRoot = globalArgs.mereRoot ||
           `${repoDir}/.swamp/mere-shell/root`;
         try {
+          if (workdir !== undefined) await requireReachableWorkdir(workdir);
           mereRoot = resolveMereRoot(
             globalArgs.mereRoot,
             globalArgs.useHostStore,
