@@ -37,6 +37,12 @@ swamp model method run my-mere-shell run \
   --input 'workdir=/home/user/project'
 ```
 
+`workdir` must be an absolute path under `/home`, `/var`, or `/run`. Those are the
+host directories `mere shell` shares into the namespace; `/tmp` inside it is a
+fresh private tmpfs, so a worktree in `/tmp` does not exist there. The run is
+refused before any download, naming the directories that work. Symlinks are
+resolved first, so a link into `/tmp` is refused too.
+
 ## Upgrading from command strings
 
 Version `2026.08.17.1` replaces the required `command` string with exact

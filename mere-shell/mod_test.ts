@@ -1,8 +1,15 @@
-import { assertEquals, assertFalse, assertThrows } from "jsr:@std/assert@1.0.19";
+import {
+  assertEquals,
+  assertFalse,
+  assertRejects,
+  assertThrows,
+} from "jsr:@std/assert@1.0.19";
 import {
   ensureRoot,
   model,
   parseSHA256SUMS,
+  isExposedPath,
+  requireReachableWorkdir,
   resolveMereRoot,
   runCommand,
   sha256Hex,
@@ -112,4 +119,65 @@ Deno.test({
     const output = await pending;
     assertEquals(output.success, false);
   },
+});
+
+Deno.test("only directories the shell shares with the host are reachable", () => {
+  for (const path of ["/home/u/work", "/var/tmp/x", "/run/user/1000", "/home"]) {
+    assertEquals(isExposedPath(path), true, path);
+  }
+  for (const path of ["/tmp/work", "/tmpfoo", "/homework", "/mnt/x", "/"]) {
+    assertEquals(isExposedPath(path), false, path);
+  }
+});
+
+Deno.test("an unreachable working directory is refused with the reason", async () => {
+  const dir = await Deno.makeTempDir({ dir: "/tmp", prefix: "workdir-" });
+  try {
+    await assertRejects(
+      () => requireReachableWorkdir(dir),
+      Error,
+      "/tmp is a private tmpfs",
+    );
+  } finally {
+    await Deno.remove(dir);
+  }
+});
+
+Deno.test("a missing, relative, or non-directory working directory is refused", async () => {
+  await assertRejects(() => requireReachableWorkdir("relative/path"), Error, "absolute");
+  await assertRejects(
+    () => requireReachableWorkdir("/home/does-not-exist-xyz"),
+    Error,
+    "not usable",
+  );
+  const home = Deno.env.get("HOME") ?? "";
+  const file = await Deno.makeTempFile({ dir: home, prefix: ".workdir-file-" });
+  try {
+    await assertRejects(() => requireReachableWorkdir(file), Error, "not a directory");
+  } finally {
+    await Deno.remove(file);
+  }
+});
+
+Deno.test("a symlink into /tmp is judged by where it points", async () => {
+  const home = Deno.env.get("HOME") ?? "";
+  const target = await Deno.makeTempDir({ dir: "/tmp", prefix: "workdir-" });
+  const link = `${home}/.workdir-link-${crypto.randomUUID()}`;
+  await Deno.symlink(target, link);
+  try {
+    await assertRejects(() => requireReachableWorkdir(link), Error, "private tmpfs");
+  } finally {
+    await Deno.remove(link);
+    await Deno.remove(target);
+  }
+});
+
+Deno.test("a directory under the home is accepted", async () => {
+  const home = Deno.env.get("HOME") ?? "";
+  const dir = await Deno.makeTempDir({ dir: home, prefix: ".workdir-ok-" });
+  try {
+    await requireReachableWorkdir(dir);
+  } finally {
+    await Deno.remove(dir);
+  }
 });
