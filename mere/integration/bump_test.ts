@@ -16,7 +16,7 @@ async function git(cwd: string, ...args: string[]) {
 
 /**
  * recipe-bump end to end on a LOCAL remote, so nothing can reach the real
- * merelinux. The run is expected to stop at deliver-change's plan-pr (the
+ * merelinux. The run is expected to stop at mere-delivery/deliver-change's plan-pr (the
  * remote is not on GitHub); everything before it is checked, including the
  * pushed branch.
  */
@@ -54,7 +54,7 @@ Deno.test({
         ]
       ) await git(seed, ...a);
 
-      for (const pkg of ["github-pr"]) {
+      for (const pkg of ["github-pr", "mere-delivery"]) {
         assertEquals(
           (await repo.swamp(["extension", "source", "add", join(ROOT, pkg)]))
             .code,

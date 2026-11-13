@@ -6,7 +6,7 @@ description: >-
   sources, edit the recipe in a per-run worktree, validate and build it with
   mere, import the outputs into an isolated local repository, run an exact
   argv smoke test through `@jeremy/mere/profile`, write the PR text from data,
-  then hand the change to deliver-change.
+  then hand the change to @jeremy/mere-delivery/deliver-change.
   No model calls. Defaults to the newest stable release in the recipe's
   current series; pass version to move to another.
 tags: {}
@@ -243,7 +243,7 @@ jobs:
       - name: deliver-change
         task:
           type: workflow
-          workflowIdOrName: "@jeremy/mere/deliver-change"
+          workflowIdOrName: "@jeremy/mere-delivery/deliver-change"
           inputs:
             worktreePath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
             branch: ${{ data.latest(inputs.sourceBinding, "bump-" + inputs.recipe.split("/")[1]).attributes.branch }}
@@ -252,8 +252,12 @@ jobs:
             commitMessage: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.commitMessage }}
             title: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.title }}
             body: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.body }}
+            profile: merelinux
+            repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            checkName: recipe-validation
+            checkDetail: The recipe validated and built in an isolated mere root.
         dependsOn: []
         weight: 0
         allowFailure: false

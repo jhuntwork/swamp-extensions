@@ -1,0 +1,33 @@
+manifestVersion: 1
+name: "@jeremy/mere-delivery"
+version: "2026.11.13.1"
+description: >-
+  Commit and branch standards for Mere repositories, held as named profiles,
+  and the one workflow that delivers a scoped change: check the message,
+  commit only the allowed paths, push without force, check the pushed diff,
+  and open and verify a pull request through @jeremy/github-pr.
+repository: "https://github.com/jhuntwork/swamp-extensions"
+license: MIT
+paths:
+  base: manifest
+models:
+  - mod.ts
+workflows:
+  - deliver-change.yaml
+vaults: []
+drivers: []
+datastores: []
+reports: []
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+  - mod_test.ts
+  - commit_policy_test.ts
+labels:
+  - mere
+  - commit-policy
+  - delivery
+  - pull-request
+dependencies:
+  - "@jeremy/github-pr"
+  - "@swamp/git"

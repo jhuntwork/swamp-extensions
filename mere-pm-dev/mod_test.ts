@@ -59,3 +59,17 @@ Deno.test("packaged delivery workflow checks formatting before the test run", as
   assertEquals(order.every((index) => index >= 0), true);
   assertEquals([...order].sort((a, b) => a - b), order);
 });
+
+Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery", async () => {
+  const text = await Deno.readTextFile(
+    new URL("./mere-change.yaml", import.meta.url),
+  );
+  assertEquals(
+    text.includes('workflowIdOrName: "@jeremy/mere-delivery/deliver-change"'),
+    true,
+  );
+  assertEquals(text.includes("profile: mere\n"), true);
+  assertEquals(text.includes("repository: jhuntwork/mere\n"), true);
+  assertEquals(text.includes("methodName: commit"), false);
+  assertEquals(text.includes("methodName: push"), false);
+});

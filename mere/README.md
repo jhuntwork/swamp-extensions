@@ -67,14 +67,9 @@ Implemented:
   edited. Read it with
   `swamp report get @jeremy/mere/upstream-drift --workflow @jeremy/mere/recipe-scan --markdown`.
 
-- `@jeremy/mere/ci`: observe GitHub Actions runs for an exact commit, wait until
-  a run completes, and dispatch the Merelinux build workflow. It uses the
-  authenticated `gh` CLI without copying a token into data or arguments; final
-  non-success conclusions are recorded before the method throws.
-
 - `@jeremy/mere/recipe-rebuild` increments one recipe's release number in an
   isolated worktree, validates and rebuilds it with mere, then delegates scoped
-  delivery to `deliver-change`. It never changes the source version or source
+  delivery to `@jeremy/mere-delivery/deliver-change`. It never changes the source version or source
   hashes. The caller must supply a `reason`, which becomes the pull-request
   body, because a release-only rebuild is not worth merging without an
   independent reason for it.
