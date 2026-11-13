@@ -41,6 +41,8 @@ export interface SummaryInput {
     outputs: { package: string; sha256: string; bytes: number }[];
   };
   dependents: string[];
+  /** Changelog entries quoted from the source archive, as markdown. */
+  reviewNotes?: string;
 }
 
 export interface Summary {
@@ -61,11 +63,15 @@ export function renderSummary(input: SummaryInput): Summary {
   const labels = ["automated", "bump"];
   if (bump.needsMigration) labels.push("needs-migration");
   const releaseUrl = bump.releaseNotesUrl;
-  const body = bump.releaseSummary && releaseUrl
+  const notes = input.reviewNotes?.trim();
+  const upstream = bump.releaseSummary && releaseUrl
     ? `${bump.releaseSummary} Release notes: ${releaseUrl}`
     : releaseUrl
     ? `Release notes: ${releaseUrl}`
     : bump.releaseSummary ?? `Upstream release ${to}.`;
+  const body = notes
+    ? releaseUrl ? `${notes}\n\nRelease notes: ${releaseUrl}` : notes
+    : upstream;
   return {
     title,
     commitMessage: title,

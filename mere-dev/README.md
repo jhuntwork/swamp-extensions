@@ -5,7 +5,7 @@ Everything for working on MereLinux recipes. One extension, three behaviors:
 | Behavior | What it does |
 | --- | --- |
 | `@jeremy/mere-dev` | Runs `mere dev` on a recipe: `validate`, `build`, `importOutputs`, `hash`, and the signing-key and build-log helpers. Downloads and checksums `mere` itself. |
-| `@jeremy/mere-dev/recipes` | Reads the recipe tree: `scan`, `read`, and the edits a version bump needs (`setVersion`, `bumpRelease`, `workspace`, `cleanWorktree`, `dependents`, `summarize`). It never runs `mere`. |
+| `@jeremy/mere-dev/recipes` | Reads the recipe tree: `scan`, `read`, and the edits a version bump needs (`setVersion`, `bumpRelease`, `workspace`, `cleanWorktree`, `dependents`, `recordReviewNotes`, `summarize`). It never runs `mere`. |
 | `@jeremy/mere-dev/source` | Looks up the newest upstream version of each recipe (GitHub tags and releases, then Anitya), and downloads and hashes sources for a bump. |
 
 Four workflows use them: `recipe-scan` (parse every recipe and report which are
@@ -121,7 +121,8 @@ swamp report get @jeremy/mere-dev/upstream-drift \
 series unless you pass `version`), downloads and hashes the new sources, edits
 the recipe in a per-run worktree, validates, builds, imports the outputs into an
 isolated repository, runs an exact-argv smoke test in `@jeremy/mere-shell`,
-writes the pull-request text from recorded data, and calls
+pauses for review notes, writes the pull-request text from recorded data, and
+calls
 `@jeremy/mere-delivery/deliver-change`. Create a `@jeremy/mere-dev` binding
 (`merelinux-recipe-validation`), an `@jeremy/mere-shell` binding
 (`merelinux-recipe-smoke`) that shares its root and version, and a
@@ -133,6 +134,21 @@ swamp workflow run @jeremy/mere-dev/recipe-bump \
   --input 'smokePackages:json=["inih"]' \
   --input 'smokeArgv:json=["true"]'
 ```
+
+After the smoke test, `recipe-bump` suspends at `approve-review-notes`. Whoever
+is driving the run reads the upstream changelog in the source archive (under
+`.swamp/mere/downloads`, named by the `blake3After` of the recorded change) and
+runs `recordReviewNotes` with the file's path in the archive and the entries a
+reviewer needs. Each entry is a quote with the release it comes from. The
+method extracts the file from the archive the build used and refuses an entry
+that is not in it, comparing with whitespace collapsed and nothing else, so a
+reworded entry fails. It also refuses an entry with an `@mention`, a `#number`
+or a code fence, which would notify a stranger or link an unrelated issue.
+`summarize` puts the entries, grouped by release, at the top of the pull request
+body, followed by the release link. Approve the step and resume the run.
+`--input reviewNotes=false` skips the pause for an unattended run, and the body
+is then only the upstream release link. The markdown body needs a profile that
+allows it; `merelinux` does.
 
 `recipe-rebuild` increments a recipe's release number and rebuilds it; you must
 give a `reason`, which becomes the pull-request body.
