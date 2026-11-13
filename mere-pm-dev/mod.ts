@@ -206,7 +206,7 @@ async function executeAndStore(
 /** Source-tree validation for the Mere package manager itself. */
 export const model = {
   type: "@jeremy/mere-pm-dev",
-  version: "2026.11.10.1",
+  version: "2026.11.13.1",
   description:
     "Build and validate an explicit Mere package-manager source tree using fixed, cancellable Zig commands.",
   globalArguments: z.object({}),
@@ -239,6 +239,14 @@ export const model = {
       toVersion: "2026.11.10.1",
       description:
         "Pin zod, require absolute source paths, and document fixed subprocess execution. Global arguments unchanged.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.11.13.1",
+      description:
+        "Delivery workflow passes change facts straight to the GitHub adapter and no longer depends on a change-packet model. Global arguments unchanged.",
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
