@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.11.13.5"
+version: "2026.11.13.6"
 description: >
   Everything for MereLinux recipes: scan the tree and look up upstream
   versions, bump or rebuild a recipe, and validate, build, and import it with

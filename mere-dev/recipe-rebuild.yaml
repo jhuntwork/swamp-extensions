@@ -43,13 +43,33 @@ inputs:
 jobs:
   - name: prepare
     steps:
+      - name: check-bindings
+        description: Fail now, before any download or build, if a binding this workflow needs is missing or has the wrong type
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: checkBindings
+          inputs:
+            bindings:
+              - name: ${{ inputs.recipeBinding }}
+                type: "@jeremy/mere-dev/recipes"
+              - name: ${{ inputs.devBinding }}
+                type: "@jeremy/mere-dev"
+              - name: ${{ inputs.prBinding }}
+                type: "@jeremy/github-pr"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
       - name: scan
         description: Update the checkout and parse the tree
         task:
           type: behavior
           behavior: ${{ inputs.recipeBinding }}
           methodName: scan
-        dependsOn: []
+        dependsOn:
+          - step: check-bindings
+            condition:
+              type: succeeded
         weight: 0
         allowFailure: false
     dependsOn: []
@@ -57,13 +77,13 @@ jobs:
   - name: build
     steps:
       - name: workspace
-        description: Paths for this rebuild; the worktree is named by the branch
+        description: Paths for this rebuild; the worktree is named by the branch, which carries the new release number so a rebuild of a later release never reuses an earlier branch
         task:
           type: behavior
           behavior: ${{ inputs.recipeBinding }}
           methodName: workspace
           inputs:
-            key: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
+            key: ${{ "bump-" + inputs.recipe.split("/")[1] + "-release-" + string(int(data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.release) + 1) }}
         dependsOn: []
         weight: 0
         allowFailure: false
@@ -74,8 +94,8 @@ jobs:
           behavior: ${{ inputs.recipeBinding }}
           methodName: cleanWorktree
           inputs:
-            key: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
-            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
+            key: ${{ "bump-" + inputs.recipe.split("/")[1] + "-release-" + string(int(data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.release) + 1) }}
+            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-release-" + string(int(data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.release) + 1) }}
         dependsOn:
           - step: workspace
             condition:
@@ -93,7 +113,7 @@ jobs:
             repoPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.checkoutPath }}
             path: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
             root: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreeRoot }}
-            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
+            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-release-" + string(int(data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.release) + 1) }}
             base: ${{ "refs/heads/" + data.latest(inputs.recipeBinding, "workspace").attributes.ref }}
         dependsOn:
           - step: clean
@@ -158,7 +178,7 @@ jobs:
           workflowIdOrName: "@jeremy/mere-delivery/deliver-change"
           inputs:
             worktreePath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
-            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
+            branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-release-" + string(int(data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.release) + 1) }}
             baseSha: ${{ data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.baseCommit }}
             allowedPaths: ${{ [data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.path] }}
             commitMessage: >-

@@ -58,14 +58,22 @@ inputs:
       items:
         type: string
         minLength: 1
-      description: Exact package names installed for the smoke test
+      description: >-
+        Exact package names installed for the smoke test. Include at least one
+        package this recipe builds, and whatever the command needs to run: the
+        profile has no shell or tools unless you list them. For core/inih:
+        ["inih-dev", "busybox", "pkgconf"].
     smokeArgv:
       type: array
       minItems: 1
       items:
         type: string
         minLength: 1
-      description: Exact argv run in the installed profile; no shell is used
+      description: >-
+        Exact argv run in the installed profile; no shell is used. It must be
+        able to fail if the package is broken. A command that always succeeds
+        (true, :, echo, test) is refused. A good check reads the version back:
+        ["pkg-config", "--modversion", "inih"] prints the bumped version.
   required:
     - recipe
     - smokePackages
@@ -73,15 +81,63 @@ inputs:
 jobs:
   - name: prepare
     steps:
+      - name: check-bindings
+        description: Fail now, before any download or build, if a binding this workflow needs is missing or has the wrong type
+        task:
+          type: behavior
+          behavior: ${{ inputs.recipeBinding }}
+          methodName: checkBindings
+          inputs:
+            bindings:
+              - name: ${{ inputs.recipeBinding }}
+                type: "@jeremy/mere-dev/recipes"
+              - name: ${{ inputs.sourceBinding }}
+                type: "@jeremy/mere-dev/source"
+              - name: ${{ inputs.devBinding }}
+                type: "@jeremy/mere-dev"
+              - name: ${{ inputs.shellBinding }}
+                type: "@jeremy/mere-shell"
+              - name: ${{ inputs.prBinding }}
+                type: "@jeremy/github-pr"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: assert-meaningful-smoke
+        description: Refuse a smoke test that cannot fail
+        dependsOn:
+          - step: check-bindings
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            !["true", ":", "echo", "test", "["].exists(c, c == inputs.smokeArgv[0])
+          message: smokeArgv must run something that can fail if the package is broken; true, :, echo, and test always succeed.
+          severity: high
       - name: scan
         description: Update the checkout and parse the tree
         task:
           type: behavior
           behavior: ${{ inputs.recipeBinding }}
           methodName: scan
-        dependsOn: []
+        dependsOn:
+          - step: assert-meaningful-smoke
+            condition:
+              type: succeeded
         weight: 0
         allowFailure: false
+      - name: assert-smoke-covers-recipe
+        description: The smoke test must install a package this recipe builds
+        dependsOn:
+          - step: scan
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.latest(inputs.recipeBinding, "recipe-" + inputs.recipe.split("/")[0] + "-" + inputs.recipe.split("/")[1]).attributes.packages.exists(built, inputs.smokePackages.exists(p, p == built.name))
+          message: smokePackages must include at least one package this recipe builds, otherwise the smoke test does not exercise the bump.
+          severity: high
       - name: plan
         description: Pick the target version and hash its sources
         task:
@@ -93,7 +149,7 @@ jobs:
             recipe: ${{ inputs.recipe }}
             version: ${{ inputs.version }}
         dependsOn:
-          - step: scan
+          - step: assert-smoke-covers-recipe
             condition:
               type: succeeded
         weight: 0
