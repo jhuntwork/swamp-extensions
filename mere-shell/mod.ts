@@ -177,21 +177,26 @@ async function ensureBinary(
 }
 
 /**
- * Host directories that `mere shell` bind-mounts into the namespace. Anything
- * else, including /tmp (a fresh tmpfs there), does not exist inside it.
+ * Host locations that do not exist inside the `mere shell` namespace. The
+ * namespace shares /home, /var, /run, /dev and /mere with the host and takes
+ * its system directories (/, /usr, /etc, /bin, ...) from the profile, so those
+ * all work. It gives /tmp a private tmpfs, so host paths below /tmp are
+ * missing, and /mnt, /sys and /boot are not part of it either.
  */
-export const EXPOSED_HOST_ROOTS = ["/home", "/var", "/run"] as const;
+const UNREACHABLE_ROOTS = ["/mnt", "/sys", "/boot"] as const;
 
-/** Whether an absolute, symlink-resolved path lies under a directory the namespace exposes. */
-export function isExposedPath(path: string): boolean {
-  return EXPOSED_HOST_ROOTS.some((root) =>
+/** Whether an absolute, symlink-resolved path is known not to exist inside the namespace. */
+export function isUnreachablePath(path: string): boolean {
+  // /tmp itself is an empty tmpfs inside the namespace and works.
+  if (path.startsWith("/tmp/")) return true;
+  return UNREACHABLE_ROOTS.some((root) =>
     path === root || path.startsWith(`${root}/`)
   );
 }
 
 /**
- * Fail before any download when the working directory cannot be reached from
- * inside the namespace, and say which directories can.
+ * Fail before any download when the working directory is known not to exist
+ * inside the namespace, and say where to put it instead.
  */
 export async function requireReachableWorkdir(workdir: string): Promise<void> {
   if (!workdir.startsWith("/")) {
@@ -206,11 +211,9 @@ export async function requireReachableWorkdir(workdir: string): Promise<void> {
   if (!(await Deno.stat(resolved)).isDirectory) {
     throw new Error(`workdir is not a directory: ${workdir}`);
   }
-  if (!isExposedPath(resolved)) {
+  if (isUnreachablePath(resolved)) {
     throw new Error(
-      `workdir ${resolved} is not visible inside the Mere shell. Only ${
-        EXPOSED_HOST_ROOTS.join(", ")
-      } are shared with the host; /tmp is a private tmpfs. Move the directory under one of them.`,
+      `workdir ${resolved} does not exist inside the Mere shell: /tmp is a private tmpfs there, and /mnt, /sys and /boot are not mounted. Use a directory under /home, /var, or /run.`,
     );
   }
 }
@@ -324,7 +327,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.11.13.2",
+  version: "2026.11.13.3",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -373,6 +376,13 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.3",
+    description:
+      "Narrow the working-directory check to locations known to be missing inside the namespace, so system paths such as / and /usr work again. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     result: {
@@ -394,7 +404,7 @@ export const model = {
           "Exact command argv; argv[0] is the executable.",
         ),
         workdir: z.string().optional().describe(
-          "Absolute working directory. It must be under /home, /var, or /run, which the shell shares with the host; /tmp is not visible inside it.",
+          "Absolute working directory inside the namespace. Host paths below /tmp and under /mnt, /sys, and /boot do not exist there; use /home, /var, or /run.",
         ),
       }),
       // deno-lint-ignore no-explicit-any
