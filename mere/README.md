@@ -79,11 +79,6 @@ Implemented:
   body, because a release-only rebuild is not worth merging without an
   independent reason for it.
 
-- `@jeremy/mere/tree`: fixed-argv `fmtCheck`, `build`, `test`, `releaseBuild`,
-  and `smoke` methods for an isolated Mere source tree. Every source path is
-  realpath-checked under the repository's `.swamp/mere` directory, subprocess
-  output is bounded, and unsuccessful commands fail the method.
-
 - `@jeremy/mere/build-summary`: workflow report for recipe build outcomes,
   package outputs, durations, and failure phases.
 
@@ -91,12 +86,6 @@ Implemented:
   `review` steps. It preserves missing provider usage as "not reported", records
   model, provider, effort, outcome, tokens, cost and durations, and aggregates
   totals by model within the workflow.
-
-- `@jeremy/mere/mere-change`: source-tree validation followed by the shared
-  delivery workflow. The pull request is the review surface; merge remains
-  manual. `deliver-change` computes its GitHub change digest and readiness
-  inside `@jeremy/github-pr`; the obsolete `@jeremy/change-packet` path is no
-  longer required.
 
 ## Parser conformance
 
@@ -135,8 +124,7 @@ swamp extension push manifest.yaml --dry-run --json
 ```
 
 The integration suite loads the extension on the real engine and runs methods
-through the swamp CLI. The `mere-change` workflow has also run against a real
-Mere checkout and delivered PR #88. The CI behavior's parsing and cancellation
+through the swamp CLI. The CI behavior's parsing and cancellation
 boundaries have unit coverage; the GitHub Actions calls remain live-environment
 checks.
 

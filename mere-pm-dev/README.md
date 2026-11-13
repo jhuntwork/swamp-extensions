@@ -25,6 +25,7 @@ the isolated worktree created for a workflow run.
 
 | Method         | Fixed argv                                         | Purpose                                            |
 | -------------- | -------------------------------------------------- | -------------------------------------------------- |
+| `fmtCheck`     | `zig fmt --check src build.zig build.zig.zon`      | Check that the sources are formatted.              |
 | `build`        | `zig build`                                        | Build the package-manager executable.              |
 | `test`         | `zig build test --summary all`                     | Run the full source-tree test suite.               |
 | `releaseBuild` | `zig build -Doptimize=ReleaseSmall -Dcpu=baseline` | Build a portable release candidate.                |
@@ -35,13 +36,16 @@ truncation state, duration, success state, and, for build methods, the expected
 binary path. `releaseBuild` additionally records `baseline: true`.
 
 Results use distinct stable resource specs and matching instance identities:
-`build-result`, `test-result`, `baseline-build-result`, and `smoke-result`.
+`fmt-result`, `build-result`, `test-result`, `baseline-build-result`, and
+`smoke-result`.
 Composed workflows should retrieve them by `specName` and read the payload under
 `.attributes`; they must not infer result type from invocation order.
 
 ## Suggested release validation
 
 ```sh
+swamp model method run mere-pm-validation fmtCheck \
+  --input sourcePath=/path/to/mere-worktree
 swamp model method run mere-pm-validation test \
   --input sourcePath=/path/to/mere-worktree
 swamp model method run mere-pm-validation releaseBuild \
@@ -60,8 +64,8 @@ This package distributes an explicit two-phase delivery path:
 1. `@jeremy/mere-change-prepare` clones `main`, creates a fresh branch at the
    supplied immutable `baseSha`, and stops. Implement the agreed scoped change
    in that isolated candidate.
-2. `@jeremy/mere-change` accepts that candidate, runs this model's full test,
-   portable baseline build, and `describe` smoke profile, stages only
+2. `@jeremy/mere-change` accepts that candidate, runs this model's format check,
+   full test, portable baseline build, and `describe` smoke profile, stages only
    `allowedPaths`, pushes a non-force branch, and creates and verifies a
    same-repository pull request.
 

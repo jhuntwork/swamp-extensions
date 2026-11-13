@@ -6,8 +6,9 @@ import { z } from "npm:zod@4.4.3";
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MERE_BINARY_RELATIVE_PATH = "zig-out/bin/mere";
 
-export type Method = "build" | "test" | "releaseBuild" | "smoke";
+export type Method = "fmtCheck" | "build" | "test" | "releaseBuild" | "smoke";
 type ResourceName =
+  | "fmt-result"
   | "build-result"
   | "test-result"
   | "baseline-build-result"
@@ -68,6 +69,8 @@ export function truncate(
 /** Return the stable resource spec and instance identity for one method result. */
 export function resultIdentity(method: Method): ResourceName {
   switch (method) {
+    case "fmtCheck":
+      return "fmt-result";
     case "build":
       return "build-result";
     case "test":
@@ -82,6 +85,8 @@ export function resultIdentity(method: Method): ResourceName {
 /** Return the exact fixed argv associated with one bounded validation method. */
 export function fixedArgv(method: Method): string[] {
   switch (method) {
+    case "fmtCheck":
+      return ["zig", "fmt", "--check", "src", "build.zig", "build.zig.zon"];
     case "build":
       return ["zig", "build"];
     case "test":
@@ -206,7 +211,7 @@ async function executeAndStore(
 /** Source-tree validation for the Mere package manager itself. */
 export const model = {
   type: "@jeremy/mere-pm-dev",
-  version: "2026.11.13.1",
+  version: "2026.11.13.2",
   description:
     "Build and validate an explicit Mere package-manager source tree using fixed, cancellable Zig commands.",
   globalArguments: z.object({}),
@@ -251,8 +256,22 @@ export const model = {
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
     },
+    {
+      toVersion: "2026.11.13.2",
+      description:
+        "Add the fmtCheck method and fmt-result resource. Global arguments unchanged.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
   ],
   resources: {
+    "fmt-result": {
+      description: "Mere package-manager formatting check result",
+      schema: CommandResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
     "build-result": {
       description: "Ordinary Mere package-manager build result",
       schema: BuildResultSchema,
@@ -279,6 +298,15 @@ export const model = {
     },
   },
   methods: {
+    fmtCheck: {
+      description:
+        "Check Zig formatting of the Mere package-manager source with fixed argv `zig fmt --check src build.zig build.zig.zon`.",
+      arguments: SourcePathArgsSchema,
+      execute: async (
+        args: z.infer<typeof SourcePathArgsSchema>,
+        context: ModelContext,
+      ) => await executeAndStore("fmtCheck", args.sourcePath, context),
+    },
     build: {
       description:
         "Build the Mere package-manager source tree with fixed argv `zig build`.",

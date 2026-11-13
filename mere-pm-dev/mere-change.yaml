@@ -2,7 +2,7 @@ id: 14f8837e-5232-4b25-8d13-5560c8a413f0
 name: "@jeremy/mere-change"
 description: >-
   Deliver one scoped implementation-ready change from an existing isolated
-  Mere candidate: validate with the supplied Mere source model, commit and push
+  Mere candidate: check formatting and validate with the supplied Mere source model, commit and push
   the allowed paths, then plan, create and verify
   the pull request. Prepare the candidate first with
   @jeremy/mere-change-prepare. This workflow contains no credentials or model
@@ -107,9 +107,33 @@ jobs:
             data.findBySpec("mere-worktree-" + run.id, "branchResult")[0].attributes.current == inputs.branch
           message: Candidate worktree is not on the requested delivery branch.
           severity: high
-      - name: test
+      - name: fmt-check
         dependsOn:
           - step: assert-candidate-branch
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelType: "@jeremy/mere-pm-dev"
+          modelName: ${{ "mere-pm-" + run.id }}
+          methodName: fmtCheck
+          inputs:
+            sourcePath: ${{ inputs.worktreePath }}
+      - name: assert-fmt
+        dependsOn:
+          - step: fmt-check
+            condition:
+              type: succeeded
+        task:
+          type: assert
+          expr: >-
+            data.findBySpec("mere-pm-" + run.id, "fmt-result")[0].attributes.success == true &&
+            data.findBySpec("mere-pm-" + run.id, "fmt-result")[0].attributes.exitCode == 0
+          message: Mere source formatting check failed.
+          severity: high
+      - name: test
+        dependsOn:
+          - step: assert-fmt
             condition:
               type: succeeded
         task:
