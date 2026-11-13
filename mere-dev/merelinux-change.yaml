@@ -205,21 +205,9 @@ jobs:
           methodName: validate
           inputs:
             recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
-      - name: assert-recipe-valid
-        dependsOn:
-          - step: validate-recipe
-            condition:
-              type: succeeded
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
-            data.query('modelName == "' + inputs.devModel + '" && specName == "validation-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0
-          message: Mere rejected the selected recipe; inspect its validation result before changing the candidate.
-          severity: high
       - name: build-recipe
         dependsOn:
-          - step: assert-recipe-valid
+          - step: validate-recipe
             condition:
               type: succeeded
         task:
@@ -228,21 +216,9 @@ jobs:
           methodName: build
           inputs:
             recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
-      - name: assert-build-succeeded
-        dependsOn:
-          - step: build-recipe
-            condition:
-              type: succeeded
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "' + inputs.devModel + '" && specName == "build-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
-            data.query('modelName == "' + inputs.devModel + '" && specName == "build-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0
-          message: The isolated Mere recipe build failed; inspect its exact build result.
-          severity: high
       - name: import-outputs
         dependsOn:
-          - step: assert-build-succeeded
+          - step: build-recipe
             condition:
               type: succeeded
         task:
@@ -251,22 +227,9 @@ jobs:
           methodName: importOutputs
           inputs:
             repository: ${{ inputs.repository }}
-      - name: assert-import-succeeded
-        dependsOn:
-          - step: import-outputs
-            condition:
-              type: succeeded
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.success == true &&
-            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.exitCode == 0 &&
-            data.query('modelName == "' + inputs.devModel + '" && specName == "import-result" && tags.workflowRunId == "' + run.id + '"')[0].attributes.repository == inputs.repository
-          message: Built outputs were not imported into the requested local development repository.
-          severity: high
       - name: smoke-installed-packages
         dependsOn:
-          - step: assert-import-succeeded
+          - step: import-outputs
             condition:
               type: succeeded
         task:

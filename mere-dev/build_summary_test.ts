@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { report } from "../build_summary.ts";
+import { report } from "./build_summary.ts";
 
 Deno.test("build-summary includes passed and failed build evidence", async () => {
   const records = new Map([

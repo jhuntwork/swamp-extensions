@@ -1,4 +1,4 @@
-import { assertEquals } from "../models/_lib/assert_test.ts";
+import { assertEquals } from "../lib/assert_test.ts";
 import { createRepo, NETWORK, type Repo } from "./harness.ts";
 import { join } from "node:path";
 
@@ -26,7 +26,7 @@ async function createRecipe(repo: Repo, name: string, args: string[]) {
   const result = await repo.swamp([
     "behavior",
     "create",
-    "@jeremy/mere/recipe",
+    "@jeremy/mere-dev/recipes",
     name,
     ...args,
     "--json",
@@ -273,77 +273,19 @@ Deno.test({
     const repo = await createRepo();
     const tree = await fixtureCheckout();
     try {
-      assertEquals(
-        (await repo.swamp([
-          "extension",
-          "pull",
-          "@svendowideit/github-release-install",
-        ])).code,
-        0,
-      );
+      // mere-dev downloads and checksums mere itself; no separate toolchain.
       assertEquals(
         (await repo.swamp([
           "behavior",
           "create",
-          "@svendowideit/github-release-install",
-          "mere-release",
-          "--global-arg",
-          "repo=jhuntwork/mere",
-          "--global-arg",
-          "format=raw",
-          "--global-arg",
-          "checksumsName=SHA256SUMS",
-          "--global-arg",
-          "assetPattern=^(?<stem>mere)-(?<version>[^-]+)-(?<os>linux)-(?<arch>[^.]+)$",
-          "--json",
-        ])).code,
-        0,
-      );
-      const archive = join(repo.dir, ".swamp", "mere", "download", "mere");
-      const download = await repo.json([
-        "behavior",
-        "run",
-        "mere-release",
-        "download",
-        "--input",
-        "version=0.23.0",
-        "--input",
-        `outputPath=${archive}`,
-      ]);
-      const sha =
-        (download.dataArtifacts as { attributes: { sha256: string } }[])[0]
-          .attributes.sha256;
-      assertEquals(
-        (await repo.swamp([
-          "behavior",
-          "create",
-          "@jeremy/mere/toolchain",
-          "mere",
+          "@jeremy/mere-dev",
+          "dev",
           "--global-arg",
           "mereVersion=0.23.0",
           "--json",
         ])).code,
         0,
       );
-      assertEquals(
-        (await repo.json([
-          "behavior",
-          "run",
-          "mere",
-          "provision",
-          "--input",
-          `archivePath=${archive}`,
-          "--input",
-          `sha256=${sha}`,
-        ])).status,
-        "succeeded",
-      );
-      await createRecipe(repo, "rec", [
-        "--global-arg",
-        `checkoutPath=${tree}`,
-        "--global-arg",
-        "ensureCheckout=false",
-      ]);
       const args = (recipe: string, path: string) => [
         "--input",
         `recipe=${recipe}`,
@@ -354,7 +296,7 @@ Deno.test({
       const valid = await repo.json([
         "behavior",
         "run",
-        "rec",
+        "dev",
         "validate",
         ...args("core/inih", tree),
       ]);
@@ -372,7 +314,7 @@ Deno.test({
       const rejected = await repo.json([
         "behavior",
         "run",
-        "rec",
+        "dev",
         "validate",
         ...args("core/inih", broken),
       ]);
@@ -380,7 +322,7 @@ Deno.test({
       const kept = await repo.json([
         "data",
         "query",
-        'modelName == "rec" && name == "validation-inih" && isLatest',
+        'modelName == "dev" && name == "validation-result" && isLatest',
         "--select",
         "attributes.ok",
       ]);
@@ -390,7 +332,7 @@ Deno.test({
       const built = await repo.json([
         "behavior",
         "run",
-        "rec",
+        "dev",
         "build",
         ...args("core/inih", tree),
       ]);
@@ -399,7 +341,7 @@ Deno.test({
         name: string;
         attributes: Record<string, unknown>;
       }[])
-        .find((a) => a.name === "build-inih")!.attributes;
+        .find((a) => a.name === "build-result")!.attributes;
       assertEquals(build.ok, true);
       const outputs = build.outputs as {
         package: string;
@@ -419,7 +361,7 @@ Deno.test({
       const failed = await repo.json([
         "behavior",
         "run",
-        "rec",
+        "dev",
         "build",
         ...args("core/inih", broken),
       ]);
@@ -428,7 +370,7 @@ Deno.test({
       const record = await repo.json([
         "data",
         "query",
-        'modelName == "rec" && name == "build-inih" && isLatest',
+        'modelName == "dev" && name == "build-result" && isLatest',
         "--select",
         "[attributes.ok, attributes.failingPhase, attributes.errorLine]",
       ]);

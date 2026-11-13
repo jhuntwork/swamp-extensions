@@ -1,5 +1,5 @@
-import { assertEquals, assertRejects } from "./_lib/assert_test.ts";
-import { downloadArtifact } from "../source.ts";
+import { assertEquals, assertRejects } from "./lib/assert_test.ts";
+import { downloadArtifact } from "./source.ts";
 
 Deno.test("source hashes streamed bytes and stores the exact artifact", async () => {
   const dir = await Deno.makeTempDir();

@@ -1,35 +1,54 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.11.13.3"
+version: "2026.11.13.5"
 description: >
-  Build and validate Mere recipes and package the canonical MereLinux recipe
-  delivery workflow. Invokes mere directly without a shell wrapper; installed
-  profile smoke tests compose with @jeremy/mere-shell.
+  Everything for MereLinux recipes: scan the tree and look up upstream
+  versions, bump or rebuild a recipe, and validate, build, and import it with
+  mere, then deliver the change. Invokes mere directly without a shell wrapper;
+  installed-package smoke tests run in @jeremy/mere-shell.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:
   base: manifest
 models:
   - mod.ts
+  - recipes.ts
+  - source.ts
 workflows:
   - merelinux-change.yaml
+  - recipe-scan.yaml
+  - recipe-bump.yaml
+  - recipe-rebuild.yaml
 vaults: []
 drivers: []
 datastores: []
-reports: []
+reports:
+  - upstream_drift.ts
+  - build_summary.ts
 additionalFiles:
   - README.md
   - LICENSE.txt
   - mod_test.ts
+  - source_test.ts
+  - recipes_test.ts
+  - upstream_drift_test.ts
+  - build_summary_test.ts
+platforms:
+  - linux-x86_64
+  - linux-aarch64
 labels:
   - mere
   - dev
   - build
   - recipe
   - hash
+  - upstream
+  - scan
+  - bump
   - delivery
   - pull-request
 dependencies:
   - "@jeremy/mere-delivery"
   - "@jeremy/github-pr"
   - "@jeremy/mere-shell"
+  - "@swamp/git"

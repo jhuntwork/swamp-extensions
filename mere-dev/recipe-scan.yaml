@@ -1,6 +1,6 @@
 id: 47f78aa9-727f-4d8d-ada1-32688f61d7e2
 autoResume: true
-name: "@jeremy/mere/recipe-scan"
+name: "@jeremy/mere-dev/recipe-scan"
 description: >-
   Parse every merelinux recipe, then look up each one's latest upstream
   version. Read-only and token-free; run on a schedule, then read the
@@ -8,13 +8,13 @@ description: >-
 tags: {}
 reports:
   require:
-    - "@jeremy/mere/upstream-drift"
+    - "@jeremy/mere-dev/upstream-drift"
 inputs:
   properties:
     recipeBinding:
       type: string
       default: merelinux
-      description: "@jeremy/mere/recipe behavior to scan"
+      description: "@jeremy/mere-dev/recipes behavior to scan"
     sourceBinding:
       type: string
       default: merelinux-upstream

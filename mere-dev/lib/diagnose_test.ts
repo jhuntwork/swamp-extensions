@@ -1,5 +1,5 @@
 import { assertEquals } from "./assert_test.ts";
-import { diagnose } from "../../recipe.ts";
+import { diagnose } from "./build.ts";
 
 Deno.test("diagnose finds the failing phase and mere's error", () => {
   const tail = `prepare inih-62

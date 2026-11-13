@@ -3,7 +3,7 @@ import {
   type ScanSummary,
   summarizeDrift,
   type UpstreamRecord,
-} from "./models/_lib/drift.ts";
+} from "./lib/drift.ts";
 
 interface Handle {
   name: string;
@@ -33,7 +33,7 @@ interface Context {
 
 /** Workflow report showing recipes that differ from upstream releases. */
 export const report = {
-  name: "@jeremy/mere/upstream-drift",
+  name: "@jeremy/mere-dev/upstream-drift",
   description:
     "Which merelinux recipes are behind upstream, which could not be checked, and why.",
   scope: "workflow",

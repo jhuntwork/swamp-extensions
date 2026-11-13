@@ -1,11 +1,11 @@
 id: 29d815ec-61b9-4472-b17c-df785b8a9f88
 autoResume: true
-name: "@jeremy/mere/recipe-bump"
+name: "@jeremy/mere-dev/recipe-bump"
 description: >-
   Bump one merelinux recipe: decide the target version, download and hash its
   sources, edit the recipe in a per-run worktree, validate and build it with
   mere, import the outputs into an isolated local repository, run an exact
-  argv smoke test through `@jeremy/mere/profile`, write the PR text from data,
+  argv smoke test through `@jeremy/mere-shell`, write the PR text from data,
   then hand the change to @jeremy/mere-delivery/deliver-change.
   No model calls. Defaults to the newest stable release in the recipe's
   current series; pass version to move to another.
@@ -25,6 +25,14 @@ inputs:
     sourceBinding:
       type: string
       default: merelinux-upstream
+    devBinding:
+      type: string
+      default: merelinux-recipe-validation
+      description: "@jeremy/mere-dev behavior that validates, builds, and imports"
+    shellBinding:
+      type: string
+      default: merelinux-recipe-smoke
+      description: "@jeremy/mere-shell behavior sharing the dev behavior's Mere root"
     prBinding:
       type: string
       default: merelinux-pr
@@ -160,7 +168,7 @@ jobs:
       - name: validate
         task:
           type: behavior
-          behavior: ${{ inputs.recipeBinding }}
+          behavior: ${{ inputs.devBinding }}
           methodName: validate
           inputs:
             recipe: ${{ inputs.recipe }}
@@ -174,7 +182,7 @@ jobs:
       - name: build
         task:
           type: behavior
-          behavior: ${{ inputs.recipeBinding }}
+          behavior: ${{ inputs.devBinding }}
           methodName: build
           inputs:
             recipe: ${{ inputs.recipe }}
@@ -190,7 +198,7 @@ jobs:
         description: Import the current build outputs into the isolated local repository
         task:
           type: behavior
-          behavior: ${{ inputs.recipeBinding }}
+          behavior: ${{ inputs.devBinding }}
           methodName: importOutputs
           inputs:
             repository: ${{ inputs.repository }}
@@ -203,9 +211,8 @@ jobs:
       - name: smoke-installed-packages
         description: Run exact argv in the imported package profile
         task:
-          type: model_method
-          modelType: "@jeremy/mere/profile"
-          modelName: ${{ "mere-profile-" + run.id }}
+          type: behavior
+          behavior: ${{ inputs.shellBinding }}
           methodName: run
           inputs:
             packages: ${{ inputs.smokePackages }}
@@ -226,6 +233,7 @@ jobs:
           inputs:
             recipe: ${{ inputs.recipe }}
             sourceBinding: ${{ inputs.sourceBinding }}
+            devBinding: ${{ inputs.devBinding }}
             runId: ${{ run.id }}
         dependsOn:
           - step: smoke-installed-packages

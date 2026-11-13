@@ -1,36 +1,61 @@
 # @jeremy/mere-dev
 
-Mere recipe development workflow: build recipes, hash sources, and read build logs.
-Invokes `mere` directly without a shell wrapper — separate from `@jeremy/mere-shell`
-which is for ad-hoc commands in a namespace.
+Everything for working on MereLinux recipes. One extension, three behaviors:
 
-## Why separate from mere-shell?
+| Behavior | What it does |
+| --- | --- |
+| `@jeremy/mere-dev` | Runs `mere dev` on a recipe: `validate`, `build`, `importOutputs`, `hash`, and the signing-key and build-log helpers. Downloads and checksums `mere` itself. |
+| `@jeremy/mere-dev/recipes` | Reads the recipe tree: `scan`, `read`, and the edits a version bump needs (`setVersion`, `bumpRelease`, `workspace`, `cleanWorktree`, `dependents`, `summarize`). It never runs `mere`. |
+| `@jeremy/mere-dev/source` | Looks up the newest upstream version of each recipe (GitHub tags and releases, then Anitya), and downloads and hashes sources for a bump. |
 
-`mere dev build` manages its own user namespace and build profile internally.
-Wrapping it inside `mere shell` (which creates its own namespace) produces nested
-namespaces that conflict. This extension calls the mere binary directly for
-development commands.
+Four workflows use them: `recipe-scan` (parse every recipe and report which are
+behind upstream), `recipe-bump` and `recipe-rebuild` (change one recipe, build it,
+and hand the change to `@jeremy/mere-delivery`), and `merelinux-change` (the
+same path for a change you implemented yourself).
+
+`@jeremy/mere-shell` runs the installed-package smoke test. `mere dev build`
+manages its own namespace, so building inside `mere shell` would nest namespaces
+and conflict; that is why the build commands here run `mere` directly.
+
+## Failure behavior
+
+`validate`, `build`, and `importOutputs` record their result and then **fail the
+method** when `mere` fails, so a workflow step stops at the first problem and no
+separate assert step is needed. The record is kept either way. `build` also
+fails when it succeeds but exports no packages, and it clears earlier exports
+of the same recipe first so a stale export cannot pass for this one.
+
+A failed build records `failingPhase` and `errorLine` (mere's first error), the
+last 60 lines of output, and the build log as a file.
 
 ## Methods
 
 ### build
 
-Build a recipe. Returns exit code, stdout/stderr, and the resolved `mereRoot` path
-for post-mortem inspection.
+Build a recipe from a checkout or per-run worktree. `recipe` is
+`<category>/<name>` and `checkoutPath` is the absolute path of the tree that
+holds `recipes/<category>/<name>/recipe.kdl`.
 
 ```sh
 swamp model method run mere-dev build \
-  --arg recipe="/path/to/recipes/core/dinit/recipe.kdl"
+  --input recipe=core/dinit \
+  --input checkoutPath=/home/user/work/merelinux
 ```
+
+The `build-result` record holds the package archives (file name, package,
+content id, sha256, size), the exported directory's arch suffix (`x86_64`,
+`any`, or `unknown` for a recipe with no `archs` line), the duration, and on
+failure the failing phase and error line. `noCache` (default true) passes
+`--no-cache`, as CI does.
 
 ### validate and importOutputs
 
-`validate` runs `mere dev validate` against a recipe without building it. `importOutputs` explicitly signs and imports archives already produced in this workflow's dedicated root into its named local development repository. Together with `@jeremy/mere-shell` pointed at the same root, they support the Mere recipe contribution path without installing anything into the host profile.
+`validate` runs `mere dev validate` against a recipe without building it (same `recipe` and `checkoutPath` arguments as `build`). `importOutputs` explicitly signs and imports archives already produced in this workflow's dedicated root into its named local development repository. Together with `@jeremy/mere-shell` pointed at the same root, they support the Mere recipe contribution path without installing anything into the host profile.
 
 ```sh
 swamp model method run mere-dev validate \
-  --arg recipe="/path/to/recipes/extra/fd/recipe.kdl"
-swamp model method run mere-dev importOutputs --arg repository="local"
+  --input recipe=extra/fd --input checkoutPath=/home/user/work/merelinux
+swamp model method run mere-dev importOutputs --input repository=local
 ```
 
 ### hash
@@ -76,6 +101,41 @@ swamp model create @jeremy/mere-dev mere-local \
 | `mereVersion` | `"latest"` | Mere version to use. Resolves from the GitHub releases API. |
 | `mereBinaryPath` | `""` | Optional existing Mere binary; when set, skips download and runs that exact binary. |
 | `mereRoot` | auto | Dedicated root path. Defaults to `$SWAMP_REPO_DIR/.swamp/mere-dev/root`. |
+
+## Scanning for updates
+
+`recipe-scan` parses every recipe and looks up each one's newest upstream
+version. It needs no token and changes nothing, so it can run on a schedule.
+
+```sh
+swamp model create @jeremy/mere-dev/recipes merelinux
+swamp model create @jeremy/mere-dev/source merelinux-upstream
+swamp workflow run @jeremy/mere-dev/recipe-scan
+swamp report get @jeremy/mere-dev/upstream-drift \
+  --workflow @jeremy/mere-dev/recipe-scan --markdown
+```
+
+## Bumping and rebuilding
+
+`recipe-bump` picks the target version (the newest in the recipe's current
+series unless you pass `version`), downloads and hashes the new sources, edits
+the recipe in a per-run worktree, validates, builds, imports the outputs into an
+isolated repository, runs an exact-argv smoke test in `@jeremy/mere-shell`,
+writes the pull-request text from recorded data, and calls
+`@jeremy/mere-delivery/deliver-change`. Create a `@jeremy/mere-dev` binding
+(`merelinux-recipe-validation`), an `@jeremy/mere-shell` binding
+(`merelinux-recipe-smoke`) that shares its root and version, and a
+`@jeremy/github-pr` binding (`merelinux-pr`).
+
+```sh
+swamp workflow run @jeremy/mere-dev/recipe-bump \
+  --input recipe=core/inih \
+  --input 'smokePackages:json=["inih"]' \
+  --input 'smokeArgv:json=["true"]'
+```
+
+`recipe-rebuild` increments a recipe's release number and rebuilds it; you must
+give a `reason`, which becomes the pull-request body.
 
 ## Packaged `merelinux-change` workflow
 

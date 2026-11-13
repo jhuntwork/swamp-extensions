@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1.0.14";
-import { decodeSigningKey } from "./recipe.ts";
+import { decodeSigningKey } from "./build.ts";
 
 Deno.test("decodeSigningKey accepts an 80-byte Mere secret key", () => {
   const bytes = Uint8Array.from([

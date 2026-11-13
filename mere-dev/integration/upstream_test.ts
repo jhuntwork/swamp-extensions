@@ -1,4 +1,4 @@
-import { assertEquals } from "../models/_lib/assert_test.ts";
+import { assertEquals } from "../lib/assert_test.ts";
 import { createRepo, NETWORK } from "./harness.ts";
 
 const FIXTURES = new URL("../testdata/merelinux/", import.meta.url).pathname;
@@ -30,7 +30,7 @@ Deno.test("scanLatest refuses to run before a recipe scan", async () => {
       (await repo.swamp([
         "behavior",
         "create",
-        "@jeremy/mere/source",
+        "@jeremy/mere-dev/source",
         "up",
         "--json",
       ])).code,
@@ -61,7 +61,7 @@ Deno.test({
     try {
       for (
         const [type, name, args] of [
-          ["recipe", "merelinux", [
+          ["recipes", "merelinux", [
             "--global-arg",
             `checkoutPath=${tree}`,
             "--global-arg",
@@ -73,7 +73,7 @@ Deno.test({
         const created = await repo.swamp([
           "behavior",
           "create",
-          `@jeremy/mere/${type}`,
+          `@jeremy/mere-dev/${type}`,
           name,
           ...args,
           "--json",
@@ -122,7 +122,7 @@ Deno.test({
     try {
       for (
         const [type, name, args] of [
-          ["recipe", "merelinux", [
+          ["recipes", "merelinux", [
             "--global-arg",
             `checkoutPath=${tree}`,
             "--global-arg",
@@ -134,7 +134,7 @@ Deno.test({
         const created = await repo.swamp([
           "behavior",
           "create",
-          `@jeremy/mere/${type}`,
+          `@jeremy/mere-dev/${type}`,
           name,
           ...args,
           "--json",
@@ -144,21 +144,21 @@ Deno.test({
       const validated = await repo.json([
         "workflow",
         "validate",
-        "@jeremy/mere/recipe-scan",
+        "@jeremy/mere-dev/recipe-scan",
       ]);
       assertEquals(validated.passed, true);
       const run = await repo.json([
         "workflow",
         "run",
-        "@jeremy/mere/recipe-scan",
+        "@jeremy/mere-dev/recipe-scan",
       ]);
       assertEquals(run.status, "succeeded");
       const report = await repo.swamp([
         "report",
         "get",
-        "@jeremy/mere/upstream-drift",
+        "@jeremy/mere-dev/upstream-drift",
         "--workflow",
-        "@jeremy/mere/recipe-scan",
+        "@jeremy/mere-dev/recipe-scan",
         "--markdown",
       ]);
       assertEquals(report.code, 0, report.stderr);
