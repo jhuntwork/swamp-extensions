@@ -31,6 +31,7 @@ const CommitCheckSchema = z.object({
   subject: z.string(),
   violations: z.array(z.string()),
   checkedExistingCommit: z.boolean(),
+  descriptionStyle: z.enum(["paragraph", "markdown"]),
   schemaVersion: z.literal(1),
 });
 
@@ -86,6 +87,7 @@ export async function runCheck(
     subject: message.split("\n")[0] ?? "",
     violations,
     checkedExistingCommit: existing,
+    descriptionStyle: PROFILES[args.profile].descriptionStyle,
     schemaVersion: 1,
   });
   context.logger?.info("Commit check finished: {count} violation(s)", {
@@ -102,7 +104,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.13.1",
+  version: "2026.11.13.2",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -110,6 +112,13 @@ export const model = {
     toVersion: "2026.11.13.1",
     description:
       "Replace @jeremy/mere/policy: rules come from named repository profiles, status claims are refused, and a referenced issue must appear in the PR body.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.2",
+    description:
+      "Profiles choose a PR description style, and a recorded check carries it. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

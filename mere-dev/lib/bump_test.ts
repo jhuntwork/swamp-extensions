@@ -99,3 +99,33 @@ Deno.test("migration state changes labels, not the maintainer-facing body", () =
       "https://github.com/o/r/releases/tag/2.3.4",
   );
 });
+
+Deno.test("review notes lead the body, followed by the release link", () => {
+  const notes = "1.6.59:\n\n- Fixed CVE-2026-1.\n- Prevented a double free.";
+  const s = renderSummary({
+    ...base,
+    reviewNotes: `  ${notes}  `,
+    bump: {
+      ...base.bump,
+      releaseNotesUrl: "https://example.test/notes",
+      releaseSummary: "A one-line upstream summary.",
+    },
+  });
+  assertEquals(s.body, `${notes}\n\nRelease notes: https://example.test/notes`);
+});
+
+Deno.test("blank review notes fall back to the upstream summary", () => {
+  const withUrl = {
+    ...base,
+    bump: { ...base.bump, releaseNotesUrl: "https://example.test/notes" },
+  };
+  assertEquals(
+    renderSummary({ ...withUrl, reviewNotes: "   " }).body,
+    renderSummary(withUrl).body,
+  );
+});
+
+Deno.test("review notes without a release link stand alone", () => {
+  const s = renderSummary({ ...base, reviewNotes: "Security fix." });
+  assertEquals(s.body, "Security fix.");
+});

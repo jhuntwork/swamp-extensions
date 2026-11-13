@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parseRecipe, parseUpstreamOverride } from "./lib/kdl.ts";
 import { bumpRelease as editBumpRelease, setVersion } from "./lib/edit.ts";
 import { findDependents, renderSummary } from "./lib/bump.ts";
+import { checkEntries, renderEntries } from "./lib/notes.ts";
 import { runChecked, runCommand } from "./lib/runner.ts";
 
 const GlobalArgs = z.object({
@@ -134,6 +135,44 @@ const SummarySchema = z.object({
   labels: z.array(z.string()),
   dependents: z.array(z.string()),
   schemaVersion: z.literal(1),
+});
+
+const ReviewNotesSchema = z.object({
+  recipe: z.string(),
+  name: z.string(),
+  version: z.string(),
+  file: z.string(),
+  entries: z.array(z.object({ version: z.string(), quote: z.string() })),
+  notes: z.string(),
+  source: z.string(),
+  schemaVersion: z.literal(1),
+});
+
+const RecordReviewNotesArgs = z.object({
+  recipe: z.string().regex(
+    /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/i,
+  ),
+  version: z.string().min(1).describe("The version being bumped to"),
+  file: z.string().min(1).max(300).refine(
+    (path) =>
+      !path.startsWith("/") && !path.split("/").includes("..") &&
+      !path.includes("\0"),
+    "a relative path inside the source archive, with no '..'",
+  ).describe(
+    "The changelog's path inside the source archive, for example xz-5.8.4/NEWS",
+  ),
+  entries: z.array(z.object({
+    version: z.string().min(1).max(60).describe(
+      "The release this entry is from, for example 5.8.4",
+    ),
+    quote: z.string().min(10).max(1200).describe(
+      "Text copied from the changelog. Whitespace may differ; the words may " +
+        "not. Anything not found in the file is refused.",
+    ),
+  })).min(1).max(40).describe(
+    "Entries a reviewer needs: security fixes, regressions fixed in versions " +
+      "we have, behavior or build changes. Copy them; do not paraphrase.",
+  ),
 });
 
 const DependentsSchema = z.object({
@@ -305,7 +344,7 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const model = {
   type: "@jeremy/mere-dev/recipes",
-  version: "2026.11.13.6",
+  version: "2026.11.13.7",
   description:
     "Read, scan, edit, and summarize merelinux recipes. Running mere on them belongs to @jeremy/mere-dev.",
   upgrades: [{
@@ -329,6 +368,13 @@ export const model = {
     toVersion: "2026.11.13.6",
     description:
       "Add the checkBindings method and preflight resource. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.7",
+    description:
+      "Add recordReviewNotes and the review-notes resource: changelog entries quoted from the source archive, checked against the file, go at the top of a bump's PR body. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -363,6 +409,13 @@ export const model = {
     summary: {
       description: "Title, commit message, PR body and labels for a change",
       schema: SummarySchema,
+      lifetime: "infinite",
+      garbageCollection: 20,
+    },
+    "review-notes": {
+      description:
+        "What a reviewer should know about an upstream release, written by an agent",
+      schema: ReviewNotesSchema,
       lifetime: "infinite",
       garbageCollection: 20,
     },
@@ -579,6 +632,107 @@ export const model = {
         return { dataHandles: [handle] };
       },
     },
+    recordReviewNotes: {
+      description:
+        "Record the changelog entries a reviewer needs for the release being " +
+        "bumped to. Each entry is a quote that must appear in the named file " +
+        "inside the source archive, ignoring whitespace; a reworded entry is " +
+        "refused, as is one with an @mention, a #number or a code fence. " +
+        "summarize puts the entries, grouped by release, at the top of the PR " +
+        "body.",
+      kind: "action",
+      arguments: RecordReviewNotesArgs,
+      execute: async (
+        args: z.infer<typeof RecordReviewNotesArgs>,
+        context: Context,
+      ) => {
+        const name = args.recipe.split("/")[1];
+        const found = (await context.readModelData(
+          context.definition.name,
+          "change",
+        )).find((r) =>
+          (r as unknown as { name?: string }).name === `change-${name}`
+        );
+        const after = (found?.attributes as {
+          version?: { after?: string };
+        } | undefined)?.version?.after;
+        if (after !== args.version) {
+          throw new Error(
+            `the recorded change for ${args.recipe} is ${
+              after ?? "missing"
+            }, not ${args.version}; notes must match the version being bumped to`,
+          );
+        }
+        const sources = ((found?.attributes as {
+          sources?: { url: string; blake3After: string }[];
+        } | undefined)?.sources ?? []).filter((x) =>
+          /^[0-9a-f]{64}$/.test(x.blake3After)
+        );
+        let changelog: string | undefined;
+        let origin = "";
+        for (const source of sources) {
+          const archive = join(
+            context.repoDir,
+            ".swamp",
+            "mere",
+            "downloads",
+            source.blake3After,
+          );
+          try {
+            await Deno.stat(archive);
+          } catch (error) {
+            if (error instanceof Deno.errors.NotFound) continue;
+            throw error;
+          }
+          const result = await runCommand(
+            "tar",
+            ["-xOf", archive, "--", args.file],
+            {
+              signal: context.signal,
+              timeoutMs: 120_000,
+              maxOutputBytes: 16 * 1024 * 1024,
+            },
+          );
+          if (result.exitCode === 0 && !result.truncated) {
+            changelog = result.stdout;
+            origin = source.url.replaceAll("${recipe.version}", args.version);
+            break;
+          }
+        }
+        if (changelog === undefined) {
+          throw new Error(
+            `${args.file} was not found in the source archive of ${args.recipe} ` +
+              `${args.version}; run the bump first so the archive is downloaded, ` +
+              "and give the file's path inside it",
+          );
+        }
+        const problems = checkEntries(changelog, args.entries);
+        if (problems.length > 0) {
+          throw new Error(`review notes refused: ${problems.join("; ")}`);
+        }
+        const notes = renderEntries(args.entries);
+        if (notes.length > 3500) {
+          throw new Error(
+            `the rendered notes are ${notes.length} characters; the limit is 3,500. Quote less.`,
+          );
+        }
+        const handle = await context.writeResource(
+          "review-notes",
+          `review-notes-${name}`,
+          {
+            recipe: args.recipe,
+            name,
+            version: args.version,
+            file: args.file,
+            entries: args.entries,
+            notes,
+            source: `${args.file} in ${origin}`,
+            schemaVersion: 1,
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
     summarize: {
       description:
         "Write the title, commit message, PR body and labels for a bump from " +
@@ -593,6 +747,10 @@ export const model = {
         devBinding: z.string().min(1).default("merelinux-recipe-validation")
           .describe("The @jeremy/mere-dev behavior that built the recipe"),
         runId: z.string().min(1),
+        requireReviewNotes: z.boolean().default(false).describe(
+          "Fail when no review notes were recorded for this version, so a " +
+            "bump cannot go out unreviewed after the pause was approved",
+        ),
       }),
       execute: async (
         args: {
@@ -600,6 +758,7 @@ export const model = {
           sourceBinding: string;
           devBinding: string;
           runId: string;
+          requireReviewNotes?: boolean;
         },
         context: Context,
       ) => {
@@ -632,7 +791,24 @@ export const model = {
           r.attributes as { name: string; depends: string[] }
         );
         const dependents = findDependents(recipes, name);
+        const noted = (await context.readModelData(own, "review-notes"))
+          .map((r) =>
+            r.attributes as { name: string; version: string; notes: string }
+          )
+          .find((r) =>
+            r.name === name &&
+            r.version === (change as { version: { after: string } }).version
+                .after
+          );
+        if (args.requireReviewNotes && !noted) {
+          throw new Error(
+            `no review notes were recorded for ${name} ` +
+              `${(change as { version: { after: string } }).version.after}; ` +
+              "run recordReviewNotes, or run the workflow with reviewNotes=false",
+          );
+        }
         const summary = renderSummary({
+          ...(noted ? { reviewNotes: noted.notes } : {}),
           name,
           recipe: args.recipe,
           runId: args.runId,

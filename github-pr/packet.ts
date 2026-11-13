@@ -49,6 +49,8 @@ export const SubmissionSchema = z.object({
   title: z.string().min(1).max(256),
   body: z.string().max(65535),
   draft: z.boolean(),
+  /** Absent means "paragraph". A delivery profile opts into "markdown". */
+  descriptionStyle: z.enum(["paragraph", "markdown"]).optional(),
 });
 
 /** The delivery facts the GitHub adapter needs before it computes its receipt. */
@@ -213,14 +215,20 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
   if (!readiness.ready) {
     throw new Error("Change packet is not ready for submission");
   }
-  requirePullRequestDescription(packet.submission.body);
+  requirePullRequestDescription(
+    packet.submission.body,
+    packet.submission.descriptionStyle,
+  );
   return packet;
 }
 
 /** Compute the integrity receipt internally so callers never need a packet behavior. */
 export async function materializeChange(raw: unknown): Promise<Packet> {
   const change = ChangeSchema.parse(raw);
-  requirePullRequestDescription(change.submission.body);
+  requirePullRequestDescription(
+    change.submission.body,
+    change.submission.descriptionStyle,
+  );
   const payload = {
     schemaVersion: change.schemaVersion,
     targetRepository: change.targetRepository,

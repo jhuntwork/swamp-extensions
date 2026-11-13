@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-delivery"
-version: "2026.11.13.1"
+version: "2026.11.13.2"
 description: >-
   Commit and branch standards for Mere repositories, held as named profiles,
   and the one workflow that delivers a scoped change: check the message,

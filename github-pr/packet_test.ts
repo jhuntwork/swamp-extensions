@@ -129,3 +129,51 @@ Deno.test("adapter recomputes derived readiness instead of trusting the packet",
     "derived readiness",
   );
 });
+
+Deno.test("the markdown style allows lists and blank lines but still refuses headings and fences", async () => {
+  const withBody = (body: string) => ({
+    ...input,
+    schemaVersion: 1 as const,
+    submission: {
+      ...input.submission,
+      body,
+      descriptionStyle: "markdown" as const,
+    },
+  });
+  const ok = await requirePacketOrChange(
+    withBody("5.8.4:\n\n- Fix one.\n- Fix two.\n\nSee upstream."),
+  );
+  assertEquals(ok.submission.descriptionStyle, "markdown");
+  for (
+    const bad of ["# Heading\n\ntext", "text\n```\ncode\n```", "~~~\nx\n~~~"]
+  ) {
+    await assertRejects(
+      () => requirePacketOrChange(withBody(bad)),
+      Error,
+      "headings or code fences",
+    );
+  }
+  await assertRejects(
+    () => requirePacketOrChange(withBody("x".repeat(4_001))),
+    Error,
+    "longer than 4,000",
+  );
+  await assertRejects(
+    () => requirePacketOrChange(withBody("Tests pass.\n\n- a")),
+    Error,
+    "boilerplate",
+  );
+});
+
+Deno.test("without an opt-in, lists and blank lines are still refused", async () => {
+  await assertRejects(
+    () =>
+      requirePacketOrChange({
+        ...input,
+        schemaVersion: 1 as const,
+        submission: { ...input.submission, body: "One.\n\n- two" },
+      }),
+    Error,
+    "one paragraph",
+  );
+});

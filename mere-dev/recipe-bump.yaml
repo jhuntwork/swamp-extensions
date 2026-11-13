@@ -39,6 +39,14 @@ inputs:
     noCache:
       type: boolean
       default: true
+    reviewNotes:
+      type: boolean
+      default: true
+      description: >-
+        Pause after the smoke test so the agent can read the upstream
+        changelog in the source archive and record what a reviewer should
+        know, then put it in the PR body. Set false for unattended runs; the
+        PR then carries only the upstream release link.
     expectedAuthorEmail:
       type: string
       default: ""
@@ -280,6 +288,32 @@ jobs:
               type: succeeded
         weight: 0
         allowFailure: false
+    dependsOn:
+      - job: prepare
+        condition:
+          type: succeeded
+    weight: 0
+  - name: review
+    description: Let the agent record what a reviewer should know, then write the PR text
+    steps:
+      - name: approve-review-notes
+        description: Suspend so the agent can read the changelog and record review notes
+        guard: ${{ !inputs.reviewNotes }}
+        task:
+          type: manual_approval
+          prompt: >-
+            Find the upstream changelog inside this bump's source archive (the
+            archive is under .swamp/mere/downloads, named by the blake3After of
+            the recorded change). Read the entries for every release between the
+            current version and the new one. Then run recordReviewNotes on the
+            recipes behavior with the file's path in the archive and the entries
+            a reviewer needs: security fixes, regressions fixed in versions we
+            have, and behavior or build changes. Each entry is copied from the
+            changelog; the tool refuses any that is not in the file. Add no
+            commentary. Approve this step and resume the run.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
       - name: summarize
         description: Write the PR text from recorded data
         task:
@@ -291,14 +325,18 @@ jobs:
             sourceBinding: ${{ inputs.sourceBinding }}
             devBinding: ${{ inputs.devBinding }}
             runId: ${{ run.id }}
+            requireReviewNotes: ${{ inputs.reviewNotes }}
         dependsOn:
-          - step: smoke-installed-packages
+          - step: approve-review-notes
             condition:
-              type: succeeded
+              type: or
+              conditions:
+                - type: succeeded
+                - type: skipped
         weight: 0
         allowFailure: false
     dependsOn:
-      - job: prepare
+      - job: build
         condition:
           type: succeeded
     weight: 0
@@ -326,7 +364,7 @@ jobs:
         weight: 0
         allowFailure: false
     dependsOn:
-      - job: build
+      - job: review
         condition:
           type: succeeded
     weight: 0

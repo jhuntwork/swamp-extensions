@@ -94,8 +94,43 @@ jobs:
         dependsOn: []
         weight: 0
         allowFailure: false
+      - name: check-description
+        description: The pull request body meets the description policy, checked before anything is committed or pushed
+        task:
+          type: behavior
+          behavior: ${{ inputs.prBinding }}
+          methodName: checkDescription
+          inputs:
+            body: ${{ inputs.body }}
+            style: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
+        dependsOn:
+          - step: check-message
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: status
+        description: Whether the allowed paths still have uncommitted changes; a branch that already has its commit does not
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: status
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            paths: ${{ inputs.allowedPaths }}
+        dataOutputOverrides:
+          - specName: statusResult
+            lifetime: workflow
+        dependsOn:
+          - step: check-description
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
       - name: commit
-        description: Commit only the allowed paths
+        description: Commit only the allowed paths; skipped when they are already committed, so a resumed run does not fail on an empty commit
+        guard: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "statusResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.clean }}
         task:
           type: model_method
           modelType: "@swamp/git"
@@ -110,9 +145,31 @@ jobs:
           - specName: commitResult
             lifetime: workflow
         dependsOn:
-          - step: check-message
+          - step: status
             condition:
               type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: head
+        description: The commit at the tip of the branch, whether this run made it or an earlier one did
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-head-" + run.id }}
+          methodName: log
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            maxCount: 1
+        dataOutputOverrides:
+          - specName: logResult
+            lifetime: workflow
+        dependsOn:
+          - step: commit
+            condition:
+              type: or
+              conditions:
+                - type: succeeded
+                - type: skipped
         weight: 0
         allowFailure: false
       - name: read-commit
@@ -130,7 +187,7 @@ jobs:
           - specName: logResult
             lifetime: workflow
         dependsOn:
-          - step: commit
+          - step: head
             condition:
               type: succeeded
         weight: 0
@@ -150,6 +207,43 @@ jobs:
             profile: ${{ inputs.profile }}
         dependsOn:
           - step: read-commit
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: diff
+        description: List what the branch changes against its base, before anything is pushed
+        task:
+          type: model_method
+          modelType: "@swamp/git"
+          modelName: ${{ "mere-deliver-" + run.id }}
+          methodName: diff
+          inputs:
+            repoPath: ${{ inputs.worktreePath }}
+            base: ${{ inputs.baseSha }}
+            head: HEAD
+            nameOnly: true
+            threeWay: true
+        dataOutputOverrides:
+          - specName: diffResult
+            lifetime: workflow
+        dependsOn:
+          - step: verify-commit
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: assert-scoped
+        description: The diff is not empty and has only allowed paths, so nothing out of scope is ever pushed
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.size() > 0 &&
+            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.all(path, inputs.allowedPaths.exists(allowed, allowed == path))
+          message: The pushed diff is empty or contains a path outside the expected change.
+          severity: high
+        dependsOn:
+          - step: diff
             condition:
               type: succeeded
         weight: 0
@@ -174,43 +268,6 @@ jobs:
         dependsOn: []
         weight: 0
         allowFailure: false
-      - name: diff
-        description: List what the pushed branch changes against its base
-        task:
-          type: model_method
-          modelType: "@swamp/git"
-          modelName: ${{ "mere-deliver-" + run.id }}
-          methodName: diff
-          inputs:
-            repoPath: ${{ inputs.worktreePath }}
-            base: ${{ inputs.baseSha }}
-            head: HEAD
-            nameOnly: true
-            threeWay: true
-        dataOutputOverrides:
-          - specName: diffResult
-            lifetime: workflow
-        dependsOn:
-          - step: push
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
-      - name: assert-scoped
-        description: The pushed diff is not empty and has only allowed paths
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.size() > 0 &&
-            data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.all(path, inputs.allowedPaths.exists(allowed, allowed == path))
-          message: The pushed diff is empty or contains a path outside the expected change.
-          severity: high
-        dependsOn:
-          - step: diff
-            condition:
-              type: succeeded
-        weight: 0
-        allowFailure: false
       - name: plan-pr
         task:
           type: behavior
@@ -226,7 +283,7 @@ jobs:
                 sha: ${{ inputs.baseSha }}
               head:
                 ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+                sha: ${{ data.query('modelName == "mere-deliver-head-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.commits[0].sha }}
               changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
               checks:
                 - name: ${{ inputs.checkName }}
@@ -238,8 +295,9 @@ jobs:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
                 draft: ${{ inputs.draft }}
+                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
         dependsOn:
-          - step: assert-scoped
+          - step: push
             condition:
               type: succeeded
         weight: 0
@@ -259,7 +317,7 @@ jobs:
                 sha: ${{ inputs.baseSha }}
               head:
                 ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+                sha: ${{ data.query('modelName == "mere-deliver-head-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.commits[0].sha }}
               changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
               checks:
                 - name: ${{ inputs.checkName }}
@@ -271,6 +329,7 @@ jobs:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
                 draft: ${{ inputs.draft }}
+                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:
@@ -294,7 +353,7 @@ jobs:
                 sha: ${{ inputs.baseSha }}
               head:
                 ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
+                sha: ${{ data.query('modelName == "mere-deliver-head-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.commits[0].sha }}
               changedPaths: ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
               checks:
                 - name: ${{ inputs.checkName }}
@@ -306,6 +365,7 @@ jobs:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
                 draft: ${{ inputs.draft }}
+                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
             result: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:

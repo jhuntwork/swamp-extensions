@@ -37,10 +37,20 @@ draft.
 
 ## PR description contract
 
-Every submission must have one concise, maintainer-facing paragraph. The adapter
-rejects empty or multi-paragraph bodies, headings, lists, code fences, and
-pipeline, automation, or test-status boilerplate. The diff and pipeline results
-remain the source of truth for implementation details and checks.
+By default every submission must have one concise, maintainer-facing paragraph
+of at most 2,000 characters. The adapter rejects empty or multi-paragraph
+bodies, headings, lists, code fences, and pipeline, automation, or test-status
+boilerplate. The diff and pipeline results remain the source of truth for
+implementation details and checks.
+
+A delivery profile may opt into `submission.descriptionStyle: markdown`. That
+style also allows blank lines and lists, up to 4,000 characters, so quoted
+upstream release notes stay readable. Headings and code fences are refused in
+both styles, and so is the boilerplate. A packet that does not set the field
+gets the default.
+
+`checkDescription` applies the same rule to a body on its own, with no GitHub
+access, so a workflow can reject a bad body before it commits or pushes.
 
 
 Use this model at the end of a repository-owned workflow:

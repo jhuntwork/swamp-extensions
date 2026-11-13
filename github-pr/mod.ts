@@ -2,6 +2,7 @@ import { z } from "npm:zod@4.4.3";
 import { applyPr, ApplyResultSchema } from "./apply.ts";
 import { planPr, PlanSchema } from "./plan.ts";
 import { ChangeSchema, PacketSchema } from "./packet.ts";
+import { checkPullRequestDescription } from "./description_policy.ts";
 import {
   preflight,
   PreflightConfigSchema,
@@ -10,6 +11,20 @@ import {
 import { VerificationSchema, verifyPr } from "./verify.ts";
 
 const Globals = PreflightConfigSchema;
+
+const CheckDescriptionArgs = z.object({
+  body: z.string().describe("The pull request body to check"),
+  style: z.enum(["paragraph", "markdown"]).default("paragraph").describe(
+    "The style a delivery profile allows; paragraph is the default rule",
+  ),
+});
+
+const DescriptionCheckSchema = z.object({
+  ok: z.boolean(),
+  style: z.enum(["paragraph", "markdown"]),
+  violations: z.array(z.string()),
+  schemaVersion: z.literal(1),
+});
 const ChangeInputSchema = z.union([ChangeSchema, PacketSchema]);
 
 type ChangeInput = z.infer<typeof ChangeInputSchema>;
@@ -47,7 +62,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.13.1",
+  version: "2026.11.13.2",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -91,6 +106,13 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.2",
+    description:
+      "Let a delivery profile opt into a markdown description style (lists and blank lines allowed, headings and code fences refused), and add checkDescription so a body can be checked before anything is pushed. The default rule is unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     preflight: {
@@ -110,6 +132,12 @@ export const model = {
       schema: ApplyResultSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
+    },
+    descriptionCheck: {
+      description: "Whether a pull request body meets the description policy",
+      schema: DescriptionCheckSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
     },
     verification: {
       description: "Read-back proof that a pull request matches a packet",
@@ -135,6 +163,31 @@ export const model = {
         return {
           dataHandles: [await ctx.writeResource("preflight", "current", data)],
         };
+      },
+    },
+    checkDescription: {
+      description:
+        "Check a pull request body against the description policy before anything is pushed. Records the result, then throws if the body breaks the policy. Needs no GitHub access.",
+      arguments: CheckDescriptionArgs,
+      execute: async (
+        args: z.infer<typeof CheckDescriptionArgs>,
+        ctx: Context,
+      ) => {
+        const violations = checkPullRequestDescription(args.body, args.style);
+        const handle = await ctx.writeResource(
+          "descriptionCheck",
+          "description-check",
+          {
+            ok: violations.length === 0,
+            style: args.style,
+            violations,
+            schemaVersion: 1,
+          },
+        );
+        if (violations.length > 0) {
+          throw new Error(`PR description policy: ${violations.join("; ")}`);
+        }
+        return { dataHandles: [handle] };
       },
     },
     planPr: {

@@ -318,3 +318,259 @@ Deno.test("recipe-rebuild names its branch after the new release, so a later reb
   assertEquals(text.includes('"-release-"'), true);
   assertEquals(text.includes(".attributes.release) + 1"), true);
 });
+
+function notesContext(
+  data: Record<string, Array<Record<string, unknown>>>,
+  repoDir = "/repo",
+) {
+  const written: Array<
+    { spec: string; name: string; data: Record<string, unknown> }
+  > = [];
+  return {
+    written,
+    context: {
+      repoDir,
+      signal: new AbortController().signal,
+      definition: { name: "merelinux" },
+      globalArgs: model.globalArguments.parse({ ensureCheckout: false }),
+      writeResource: (
+        spec: string,
+        name: string,
+        payload: Record<string, unknown>,
+      ) => {
+        written.push({ spec, name, data: payload });
+        return Promise.resolve({ name });
+      },
+      readModelData: (_binding: string, spec?: string) =>
+        Promise.resolve(
+          (data[spec ?? ""] ?? []).map((attributes) => ({
+            name: attributes.name as string,
+            attributes,
+          })),
+        ),
+    },
+  };
+}
+
+const HASH = "a".repeat(64);
+const CHANGELOG = `libpng changes
+
+Version 1.6.59 [September 28, 2026]
+  Fixed CVE-2026-46675 (medium severity):
+    Use-after-free of zlib input in png_read_end after incomplete zTXt, iTXt
+    or iCCP decompression.
+  Prevented a double free of png_struct members after an allocation failure.
+`;
+
+/** A repo directory holding a real tar archive keyed by the recorded hash. */
+async function repoWithArchive(): Promise<string> {
+  const repo = await Deno.makeTempDir({ prefix: "mere-notes-" });
+  const staging = join(repo, "stage", "libpng-1.6.59");
+  await Deno.mkdir(staging, { recursive: true });
+  await Deno.writeTextFile(join(staging, "CHANGES"), CHANGELOG);
+  const downloads = join(repo, ".swamp", "mere", "downloads");
+  await Deno.mkdir(downloads, { recursive: true });
+  // swamp-quality-ignore deno-command: test fixture archive, fixed argv
+  const made = await new Deno.Command("tar", {
+    args: [
+      "-cf",
+      join(downloads, HASH),
+      "-C",
+      join(repo, "stage"),
+      "libpng-1.6.59",
+    ],
+  }).output();
+  if (made.code !== 0) throw new Error("tar failed");
+  return repo;
+}
+
+const CHANGE = [{
+  name: "change-libpng",
+  version: { before: "1.6.56", after: "1.6.59" },
+  sources: [{
+    url: "https://x/libpng-${recipe.version}.tar",
+    blake3After: HASH,
+  }],
+}];
+
+const ENTRIES = {
+  recipe: "desktop/libpng",
+  version: "1.6.59",
+  file: "libpng-1.6.59/CHANGES",
+  entries: [
+    {
+      version: "1.6.59",
+      quote:
+        "Fixed CVE-2026-46675 (medium severity): Use-after-free of zlib input in png_read_end after incomplete zTXt, iTXt or iCCP decompression.",
+    },
+    {
+      version: "1.6.59",
+      quote:
+        "Prevented a double free of png_struct members after an allocation failure.",
+    },
+  ],
+};
+
+Deno.test("recordReviewNotes stores quoted entries as markdown, grouped by release", async () => {
+  const repo = await repoWithArchive();
+  try {
+    const { context: ctx, written } = notesContext({ change: CHANGE }, repo);
+    await model.methods.recordReviewNotes.execute(ENTRIES, ctx as never);
+    assertEquals(written.length, 1);
+    assertEquals(written[0].spec, "review-notes");
+    assertEquals(
+      written[0].data.notes,
+      `1.6.59:\n\n- ${ENTRIES.entries[0].quote}\n- ${ENTRIES.entries[1].quote}`,
+    );
+    assertEquals(
+      written[0].data.source,
+      "libpng-1.6.59/CHANGES in https://x/libpng-1.6.59.tar",
+    );
+  } finally {
+    await Deno.remove(repo, { recursive: true });
+  }
+});
+
+Deno.test("recordReviewNotes refuses an entry that is not in the changelog", async () => {
+  const repo = await repoWithArchive();
+  try {
+    const { context: ctx, written } = notesContext({ change: CHANGE }, repo);
+    await assertRejects(
+      () =>
+        model.methods.recordReviewNotes.execute({
+          ...ENTRIES,
+          entries: [{
+            version: "1.6.59",
+            quote: "Fixed a serious use-after-free that could leak memory.",
+          }],
+        }, ctx as never),
+      Error,
+      "is not in the changelog",
+    );
+    assertEquals(written.length, 0);
+  } finally {
+    await Deno.remove(repo, { recursive: true });
+  }
+});
+
+Deno.test("recordReviewNotes names a file that is not in the archive", async () => {
+  const repo = await repoWithArchive();
+  try {
+    const { context: ctx } = notesContext({ change: CHANGE }, repo);
+    await assertRejects(
+      () =>
+        model.methods.recordReviewNotes.execute(
+          { ...ENTRIES, file: "libpng-1.6.59/NOPE" },
+          ctx as never,
+        ),
+      Error,
+      "was not found in the source archive",
+    );
+  } finally {
+    await Deno.remove(repo, { recursive: true });
+  }
+});
+
+Deno.test("recordReviewNotes refuses a version that differs from the change", async () => {
+  const { context: ctx, written } = notesContext({
+    change: [{ ...CHANGE[0], version: { before: "1.6.56", after: "1.6.58" } }],
+  });
+  await assertRejects(
+    () => model.methods.recordReviewNotes.execute(ENTRIES, ctx as never),
+    Error,
+    "1.6.58, not 1.6.59",
+  );
+  assertEquals(written.length, 0);
+});
+
+Deno.test("recordReviewNotes refuses when no change was recorded", async () => {
+  const { context: ctx } = notesContext({});
+  await assertRejects(
+    () => model.methods.recordReviewNotes.execute(ENTRIES, ctx as never),
+    Error,
+    "missing, not 1.6.59",
+  );
+});
+
+Deno.test("recordReviewNotes arguments refuse a path outside the archive and an empty list", () => {
+  const args = model.methods.recordReviewNotes.arguments;
+  for (const file of ["/etc/passwd", "../x/NEWS", "a/../../b"]) {
+    assertEquals(args.safeParse({ ...ENTRIES, file }).success, false, file);
+  }
+  assertEquals(args.safeParse({ ...ENTRIES, entries: [] }).success, false);
+  assertEquals(args.safeParse(ENTRIES).success, true);
+});
+
+Deno.test("summarize puts the recorded notes in the PR body and ignores notes for another version", async () => {
+  const base = {
+    change: [{
+      name: "change-libpng",
+      version: { before: "1.6.56", after: "1.6.59" },
+      release: { before: 2, after: 1 },
+      sources: [],
+    }],
+    recipe: [{ name: "libpng", depends: [] }],
+  };
+  const upstream = {
+    bump: [{
+      name: "bump-libpng",
+      bumpKind: "patch",
+      targetSource: "latestInSeries",
+      needsMigration: false,
+      hardcodedVersion: { exact: false, series: false },
+      releaseNotesUrl: "https://example.test/notes",
+    }],
+    "build-result": [{
+      name: "build-result",
+      recipe: "desktop/libpng",
+      ok: true,
+      arch: "x86_64",
+      durationMs: 1,
+      noCache: true,
+      outputs: [],
+    }],
+  };
+  const run = async (
+    reviewNotes: Array<Record<string, unknown>>,
+    requireReviewNotes = false,
+  ) => {
+    const { context: ctx, written } = notesContext({
+      ...base,
+      ...upstream,
+      "review-notes": reviewNotes,
+    });
+    await model.methods.summarize.execute({
+      recipe: "desktop/libpng",
+      sourceBinding: "s",
+      devBinding: "d",
+      runId: "r",
+      requireReviewNotes,
+    }, ctx as never);
+    return written.find((w) => w.spec === "summary")!.data.body as string;
+  };
+  const notes = "1.6.59:\n\n- Prevented a double free.";
+  assertEquals(
+    await run([{ name: "libpng", version: "1.6.59", notes }]),
+    `${notes}\n\nRelease notes: https://example.test/notes`,
+  );
+  assertEquals(
+    await run([{ name: "libpng", version: "1.6.58", notes: "- Stale." }]),
+    "Release notes: https://example.test/notes",
+  );
+  // A required review that was approved without recording anything must not
+  // fall through to a link-only body.
+  await assertRejects(
+    () => run([], true),
+    Error,
+    "no review notes were recorded for libpng 1.6.59",
+  );
+  await assertRejects(
+    () => run([{ name: "libpng", version: "1.6.58", notes: "- Stale." }], true),
+    Error,
+    "no review notes were recorded",
+  );
+  assertEquals(
+    await run([{ name: "libpng", version: "1.6.59", notes }], true),
+    `${notes}\n\nRelease notes: https://example.test/notes`,
+  );
+});
