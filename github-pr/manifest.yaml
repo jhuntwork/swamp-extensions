@@ -22,13 +22,6 @@ reports: []
 additionalFiles:
   - README.md
   - DESIGN.md
-  - auth.ts
-  - preflight.ts
-  - description_policy.ts
-  - packet.ts
-  - plan.ts
-  - apply.ts
-  - verify.ts
   - auth_test.ts
   - gh_test.ts
   - preflight_test.ts
