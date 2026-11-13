@@ -180,8 +180,9 @@ async function ensureBinary(
 export function resolveMereRoot(
   configuredRoot: string,
   useHostStore: boolean,
+  defaultRoot = "",
 ): string {
-  if (!useHostStore) return configuredRoot;
+  if (!useHostStore) return configuredRoot || defaultRoot;
   if (configuredRoot !== "" && configuredRoot !== "/") {
     throw new Error(
       "useHostStore=true requires mereRoot to be empty or '/' because Mere exposes <root>/mere as /mere",
@@ -284,7 +285,7 @@ export function truncate(
 /** Swamp model definition for verified, cancellable Mere shell execution. */
 export const model = {
   type: "@jeremy/mere-shell",
-  version: "2026.11.10.1",
+  version: "2026.11.13.1",
   description:
     "Execute typed argv inside a verified, cancellable Mere Linux shell namespace.",
   globalArguments: GlobalArgsSchema,
@@ -316,6 +317,13 @@ export const model = {
     toVersion: "2026.11.10.1",
     description:
       "Pin zod and constrain package names before writing the Mere profile. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.13.1",
+    description:
+      "Fall back to the repo-local root when mereRoot is empty, so the host root is no longer used by accident. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -364,6 +372,7 @@ export const model = {
           mereRoot = resolveMereRoot(
             globalArgs.mereRoot,
             globalArgs.useHostStore,
+            `${repoDir}/.swamp/mere-shell/root`,
           );
           const version = await resolveVersion(
             globalArgs.mereVersion,

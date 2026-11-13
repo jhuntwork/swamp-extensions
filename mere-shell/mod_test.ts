@@ -25,6 +25,8 @@ Deno.test("resolveMereRoot selects the host root without a symlink", () => {
   assertEquals(resolveMereRoot("", true), "/");
   assertEquals(resolveMereRoot("/", true), "/");
   assertEquals(resolveMereRoot("/tmp/mere-root", false), "/tmp/mere-root");
+  assertEquals(resolveMereRoot("", false, "/repo/.swamp/mere-shell/root"), "/repo/.swamp/mere-shell/root");
+  assertEquals(resolveMereRoot("/tmp/mere-root", false, "/repo/default"), "/tmp/mere-root");
   assertThrows(
     () => resolveMereRoot("/tmp/mere-root", true),
     Error,

@@ -1,5 +1,5 @@
 // ABOUTME: Bounded Swamp model for building and validating the Mere package-manager source tree.
-// ABOUTME: Executes fixed Zig argv only; it has no release acquisition, package-root, recipe, or publishing authority.
+// ABOUTME: Runs fixed Zig argv inside a @jeremy/mere-shell namespace; it has no release acquisition, recipe, or publishing authority.
 // deno-lint-ignore-file no-import-prefix
 import { z } from "npm:zod@4.4.3";
 
@@ -14,13 +14,66 @@ type ResourceName =
   | "baseline-build-result"
   | "smoke-result";
 
+/** Packages of the Mere project's own development profile. */
+export const DEV_PACKAGES = [
+  "zig",
+  "bash",
+  "busybox",
+  "ca-certs",
+  "cmake",
+  "curl",
+  "llvm",
+  "make",
+  "musl-dev",
+  "perl",
+  "pkgconf",
+  "python",
+] as const;
+
+const PackageNameSchema = z.string().regex(
+  /^[A-Za-z0-9@._+:/-]+$/,
+  "package names may contain only package identifier characters",
+);
+
+const GlobalArgsSchema = z.object({
+  shell: z.string().min(1).default("mere-shell-pm").describe(
+    "Name of the @jeremy/mere-shell definition that runs every command. It is created on first use with default settings; create it first to pin a Mere version or root.",
+  ),
+  packages: z.array(PackageNameSchema).min(1).default([...DEV_PACKAGES])
+    .describe(
+      "Packages available inside the shell. The default matches the Mere project's development profile.",
+    ),
+});
+
+type ShellResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+  success: boolean;
+  error?: string;
+};
+
+type RunModelResult =
+  | { ok: true; resources: Array<{ attributes?: Record<string, unknown> }> }
+  | { ok: false; error: { message: string } };
+
 type ModelContext = {
   signal?: AbortSignal;
+  globalArgs?: z.infer<typeof GlobalArgsSchema>;
+  logger?: {
+    info: (message: string, fields?: Record<string, unknown>) => void;
+  };
   writeResource: (
     name: ResourceName,
     key: string,
     attributes: Record<string, unknown>,
   ) => Promise<unknown>;
+  runModel?: (options: Record<string, unknown>) => Promise<RunModelResult>;
+  readModelData?: (
+    name: string,
+    spec?: string,
+  ) => Promise<Array<{ attributes: Record<string, unknown> }>>;
 };
 
 const SourcePathArgsSchema = z.object({
@@ -98,20 +151,38 @@ export function fixedArgv(method: Method): string[] {
   }
 }
 
-/** Execute an exact argv in a supplied source directory with cancellation support. */
-export async function runCommand(
+/** Run an exact argv in a Mere shell namespace whose working directory is the source tree. */
+export async function runInShell(
   argv: string[],
   cwd: string,
-  signal?: AbortSignal,
-): Promise<Deno.CommandOutput> {
-  // swamp-quality-ignore deno-command
-  return await new Deno.Command(argv[0], {
-    args: argv.slice(1),
-    cwd,
-    stdout: "piped",
-    stderr: "piped",
-    signal,
-  }).output();
+  context: ModelContext,
+): Promise<ShellResult> {
+  if (!context.runModel) {
+    throw new Error("runModel is unavailable here; run this model locally");
+  }
+  const globals = GlobalArgsSchema.parse(context.globalArgs ?? {});
+  context.logger?.info("Running {argv} in the {shell} namespace", {
+    argv: argv.join(" "),
+    shell: globals.shell,
+  });
+  const result = await context.runModel({
+    modelType: "@jeremy/mere-shell",
+    name: globals.shell,
+    method: "run",
+    arguments: { packages: globals.packages, argv, workdir: cwd },
+  });
+  if (!result.ok) {
+    throw new Error(`mere-shell ${globals.shell}: ${result.error.message}`);
+  }
+  let attributes = result.resources[0]?.attributes;
+  if (!attributes && context.readModelData) {
+    attributes = (await context.readModelData(globals.shell, "result"))[0]
+      ?.attributes;
+  }
+  if (!attributes) {
+    throw new Error(`mere-shell ${globals.shell} returned no result`);
+  }
+  return attributes as ShellResult;
 }
 
 async function requireSourceTree(sourcePath: string): Promise<void> {
@@ -133,20 +204,21 @@ async function requireSourceTree(sourcePath: string): Promise<void> {
 function commandResult(
   sourcePath: string,
   argv: string[],
-  output: Deno.CommandOutput,
+  output: ShellResult,
   durationMs: number,
 ): Record<string, unknown> {
-  const stdout = truncate(new TextDecoder().decode(output.stdout));
-  const stderr = truncate(new TextDecoder().decode(output.stderr));
+  const stdout = truncate(output.stdout);
+  const stderr = truncate(output.stderr);
   return {
     argv,
     sourcePath,
-    exitCode: output.code,
+    exitCode: output.exitCode,
     stdout: stdout.text,
     stderr: stderr.text,
-    truncated: stdout.truncated || stderr.truncated,
+    truncated: output.truncated || stdout.truncated || stderr.truncated,
     durationMs,
     success: output.success,
+    ...(output.error ? { error: output.error } : {}),
   };
 }
 
@@ -158,7 +230,7 @@ async function execute(
   const argv = fixedArgv(method);
   const start = performance.now();
   await requireSourceTree(sourcePath);
-  const output = await runCommand(argv, sourcePath, context.signal);
+  const output = await runInShell(argv, sourcePath, context);
   const result = commandResult(
     sourcePath,
     argv,
@@ -211,10 +283,10 @@ async function executeAndStore(
 /** Source-tree validation for the Mere package manager itself. */
 export const model = {
   type: "@jeremy/mere-pm-dev",
-  version: "2026.11.13.3",
+  version: "2026.11.13.4",
   description:
-    "Build and validate an explicit Mere package-manager source tree using fixed, cancellable Zig commands.",
-  globalArguments: z.object({}),
+    "Build and validate an explicit Mere package-manager source tree using fixed Zig commands run in a Mere shell namespace.",
+  globalArguments: GlobalArgsSchema,
   upgrades: [
     {
       toVersion: "2026.08.20.2",
@@ -271,6 +343,18 @@ export const model = {
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.11.13.4",
+      description:
+        "Run every command inside a @jeremy/mere-shell namespace instead of on the host, and add the shell and packages global arguments with defaults.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => ({
+        shell: "mere-shell-pm",
+        packages: [...DEV_PACKAGES],
+        ...old,
+      }),
     },
   ],
   resources: {
