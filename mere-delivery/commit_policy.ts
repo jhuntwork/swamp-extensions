@@ -1,20 +1,17 @@
+/** Rules one repository's commits and branches must follow. */
 export interface CommitRules {
   maxSubjectLength: number;
   /** Regex the subject must match; empty means no pattern. */
   subjectPattern: string;
   allowBody: boolean;
+  /** Subjects matching this regex must have no body; empty means none. */
+  noBodyPattern: string;
   forbidTrailers: boolean;
+  /** Refuse status claims such as "tests pass" that a pipeline reports better. */
+  forbidStatusClaims: boolean;
   /** Regex the branch name must match; empty means no check. */
   branchPattern: string;
 }
-
-export const DEFAULT_RULES: CommitRules = {
-  maxSubjectLength: 69,
-  subjectPattern: "",
-  allowBody: false,
-  forbidTrailers: true,
-  branchPattern: "",
-};
 
 export interface CommitUnderCheck {
   message: string;
@@ -22,6 +19,9 @@ export interface CommitUnderCheck {
   title?: string;
   branch?: string;
   authorEmail?: string;
+  /** An associated issue number; when given, the pull request body must cite it. */
+  issue?: number;
+  prBody?: string;
 }
 
 export interface Expectations {
@@ -32,6 +32,33 @@ export interface Expectations {
 
 const TRAILER =
   /^(co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|cc|change-id)\s*:/i;
+
+/**
+ * Claims that belong in the pipeline's results, not in a commit message. Each
+ * pattern is narrow so that explaining why a test was added still passes.
+ */
+export const STATUS_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> =
+  [
+    {
+      label: "a claim that tests pass",
+      pattern:
+        /\b(?:all\s+)?(?:(?:unit|integration|existing)\s+)?tests?\s+(?:now\s+|still\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|are\s+passing|are\s+green)\b/i,
+    },
+    {
+      label: "a claim of local validation",
+      pattern: /\b(?:validated|verified|built|tested)\s+locally\b/i,
+    },
+    {
+      label: "a claim about CI or pipeline status",
+      pattern:
+        /\b(?:ci|pipeline|github\s+actions)\s+(?:pass(?:es|ed)?|is\s+green|succeed(?:s|ed)?)\b/i,
+    },
+    {
+      label: "an AI-generation note",
+      pattern:
+        /\b(?:generated|written|authored|assisted)\s+(?:with|by)\s+(?:an?\s+)?(?:ai|claude|chatgpt|copilot|codex|kiro|gpt)\b|\u{1F916}/iu,
+    },
+  ];
 
 /**
  * `git log --format='%an <%ae>%n%B'` output: the author line, then the full
@@ -77,8 +104,17 @@ export function checkCommit(
     }
   }
   const rest = lines.slice(1);
-  if (!rules.allowBody && rest.some((l) => l.trim() !== "")) {
+  const hasBody = rest.some((l) => l.trim() !== "");
+  if (!rules.allowBody && hasBody) {
     violations.push("the message has a body, and bodies are not allowed");
+  }
+  if (
+    rules.noBodyPattern && hasBody &&
+    new RegExp(rules.noBodyPattern).test(subject)
+  ) {
+    violations.push(
+      `a subject matching ${rules.noBodyPattern} must not have a body`,
+    );
   }
   if (rules.allowBody && rest.length > 0 && rest[0].trim() !== "") {
     violations.push("the subject is not followed by a blank line");
@@ -87,6 +123,15 @@ export function checkCommit(
     violations.push(
       "the message has a trailer (Co-authored-by, Signed-off-by, ...)",
     );
+  }
+  if (rules.forbidStatusClaims) {
+    for (const claim of STATUS_CLAIMS) {
+      if (claim.pattern.test(message)) {
+        violations.push(
+          `the message contains ${claim.label}; the pipeline reports that`,
+        );
+      }
+    }
   }
   if (commit.title !== undefined && commit.title !== subject) {
     violations.push(
@@ -97,6 +142,14 @@ export function checkCommit(
     if (!new RegExp(rules.branchPattern).test(commit.branch)) {
       violations.push(
         `the branch "${commit.branch}" does not match ${rules.branchPattern}`,
+      );
+    }
+  }
+  if (commit.issue !== undefined) {
+    const cited = new RegExp(`(?:^|[^\\w])#${commit.issue}(?!\\d)`);
+    if (commit.prBody === undefined || !cited.test(commit.prBody)) {
+      violations.push(
+        `the pull request body does not reference issue #${commit.issue}`,
       );
     }
   }

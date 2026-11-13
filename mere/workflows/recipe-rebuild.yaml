@@ -3,7 +3,7 @@ autoResume: true
 name: "@jeremy/mere/recipe-rebuild"
 description: >-
   Increment one merelinux recipe's release, validate and rebuild it with mere,
-  then hand the scoped change to deliver-change. The caller states why the
+  then hand the scoped change to @jeremy/mere-delivery/deliver-change. The caller states why the
   rebuild is needed, and that reason is the pull-request body. No
   source-version lookup or model calls.
 tags: {}
@@ -151,7 +151,7 @@ jobs:
       - name: deliver-change
         task:
           type: workflow
-          workflowIdOrName: "@jeremy/mere/deliver-change"
+          workflowIdOrName: "@jeremy/mere-delivery/deliver-change"
           inputs:
             worktreePath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
             branch: ${{ "bump-" + inputs.recipe.split("/")[1] + "-rebuild" }}
@@ -162,8 +162,12 @@ jobs:
             title: >-
               ${{ inputs.recipe.split("/")[1] + ": rebuild release " + string(data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.release.after) }}
             body: ${{ inputs.reason }}
+            profile: merelinux
+            repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prBinding }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
+            checkName: recipe-validation
+            checkDetail: The recipe validated and built in an isolated mere root.
         dependsOn: []
         weight: 0
         allowFailure: false

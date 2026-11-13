@@ -342,7 +342,7 @@ export function parseBlake3Output(output: string): string {
 /** Model definition for mere recipe development workflows. */
 export const model = {
   type: "@jeremy/mere-dev",
-  version: "2026.11.13.1",
+  version: "2026.11.13.3",
   description:
     "Mere recipe development workflow: build recipes, hash sources, and read build logs. " +
     "Invokes mere directly without a shell wrapper and supports local binary overrides.",
@@ -393,6 +393,14 @@ export const model = {
       toVersion: "2026.11.13.1",
       description:
         "Delivery workflow passes change facts straight to the GitHub adapter and no longer needs a change-packet binding. Global arguments unchanged.",
+      upgradeAttributes: (
+        old: Record<string, unknown>,
+      ): Record<string, unknown> => old,
+    },
+    {
+      toVersion: "2026.11.13.3",
+      description:
+        "Delivery workflow hands the change to @jeremy/mere-delivery for the commit check, push, and pull request. Global arguments unchanged.",
       upgradeAttributes: (
         old: Record<string, unknown>,
       ): Record<string, unknown> => old,

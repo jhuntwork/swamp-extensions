@@ -1,11 +1,11 @@
-id: dad80562-7653-498f-bedf-44b1d17c2602
+id: 42362d1b-e560-4a49-85dc-11240bcddad7
 autoResume: true
-name: "@jeremy/mere/deliver-change"
+name: "@jeremy/mere-delivery/deliver-change"
 description: >-
-  Commit a worktree's change, check the commit against the commit standards,
-  push its branch, check the pushed diff is only what was expected, build and
-  verify a change packet, then plan, create and read back the pull request as
-  an ordinary PR. Never merges: the merge is manual.
+  Commit a worktree's change, check the message against the repository's
+  commit profile, push its branch, check the pushed diff is only what was
+  expected, then plan, create and read back the pull request through
+  @jeremy/github-pr. Never merges: the merge is manual.
 tags: {}
 inputs:
   properties:
@@ -27,41 +27,40 @@ inputs:
       type: string
     body:
       type: string
+    profile:
+      type: string
+      enum:
+        - mere
+        - merelinux
+      description: Which repository's commit and branch standards apply (see profiles.ts).
     repository:
       type: string
-      default: jhuntwork/merelinux
+      description: Target repository as owner/name, for example jhuntwork/mere.
     baseRef:
       type: string
       default: main
     prBinding:
       type: string
-      default: merelinux-pr
       description: "@jeremy/github-pr behavior bound to the repository"
-    subjectMaxLength:
-      type: integer
-      default: 69
-      description: Longest commit subject allowed
-    subjectPattern:
-      type: string
-      default: "^[a-z0-9][a-z0-9._+-]*: [a-z0-9].*$"
-      description: "Regex the commit subject must match (merelinux style: name, colon, verb phrase)"
-    allowBody:
-      type: boolean
-      default: false
-      description: Allow a commit body (trailers are refused either way)
-    branchPattern:
-      type: string
-      default: "^bump-[a-z0-9._-]+$"
     expectedAuthorEmail:
       type: string
       default: ""
       description: When set, the commit's author must have this email
+    draft:
+      type: boolean
+      default: false
+      description: Request a draft pull request when true.
+    issue:
+      type: integer
+      minimum: 0
+      default: 0
+      description: Associated issue number, or 0 for none. When set, the pull request body must reference it.
     checkName:
       type: string
-      default: recipe-validation
+      description: Name of the validation evidence recorded with the change.
     checkDetail:
       type: string
-      default: The recipe validated and built in an isolated mere root.
+      description: One line saying what that validation covered.
   required:
     - worktreePath
     - branch
@@ -70,6 +69,11 @@ inputs:
     - commitMessage
     - title
     - body
+    - profile
+    - repository
+    - prBinding
+    - checkName
+    - checkDetail
 jobs:
   - name: prepare
     steps:
@@ -77,17 +81,16 @@ jobs:
         description: The commit message, PR title and branch meet the standards
         task:
           type: model_method
-          modelType: "@jeremy/mere/policy"
-          modelName: ${{ "mere-policy-" + run.id }}
+          modelType: "@jeremy/mere-delivery"
+          modelName: ${{ "mere-delivery-policy-" + run.id }}
           methodName: checkCommit
           inputs:
             message: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
             branch: ${{ inputs.branch }}
-            maxSubjectLength: ${{ inputs.subjectMaxLength }}
-            subjectPattern: ${{ inputs.subjectPattern }}
-            allowBody: ${{ inputs.allowBody }}
-            branchPattern: ${{ inputs.branchPattern }}
+            profile: ${{ inputs.profile }}
+            prBody: ${{ inputs.body }}
+            issue: ${{ inputs.issue }}
         dependsOn: []
         weight: 0
         allowFailure: false
@@ -136,18 +139,15 @@ jobs:
         description: The real commit has the expected subject, no body or trailers, and the expected author
         task:
           type: model_method
-          modelType: "@jeremy/mere/policy"
-          modelName: ${{ "mere-policy-" + run.id }}
+          modelType: "@jeremy/mere-delivery"
+          modelName: ${{ "mere-delivery-policy-" + run.id }}
           methodName: checkCommit
           inputs:
             rawCommit: >-
               ${{ data.query('modelName == "mere-deliver-' + run.id + '" && specName == "logResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.raw }}
             expectedSubject: ${{ inputs.commitMessage.split("\n")[0] }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
-            maxSubjectLength: ${{ inputs.subjectMaxLength }}
-            subjectPattern: ${{ inputs.subjectPattern }}
-            allowBody: ${{ inputs.allowBody }}
-            branchPattern: ${{ inputs.branchPattern }}
+            profile: ${{ inputs.profile }}
         dependsOn:
           - step: read-commit
             condition:
@@ -237,7 +237,7 @@ jobs:
               submission:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
-                draft: false
+                draft: ${{ inputs.draft }}
         dependsOn:
           - step: assert-scoped
             condition:
@@ -270,7 +270,7 @@ jobs:
               submission:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
-                draft: false
+                draft: ${{ inputs.draft }}
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:
@@ -305,7 +305,7 @@ jobs:
               submission:
                 title: ${{ inputs.title }}
                 body: ${{ inputs.body }}
-                draft: false
+                draft: ${{ inputs.draft }}
             result: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:

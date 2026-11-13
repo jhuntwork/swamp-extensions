@@ -5,8 +5,9 @@ description: >-
   isolated clone from main, suspends for scoped implementation and review,
   validates and builds one recipe, imports its outputs into a dedicated local
   repository, installs the requested package set into an isolated profile for
-  an exact-argv smoke test, then commits, pushes, and publishes a
-  review pull request.
+  an exact-argv smoke test, then hands the change to
+  @jeremy/mere-delivery/deliver-change to check the commit, push it, and publish
+  a review pull request.
 version: 1
 concurrency: 1
 inputs:
@@ -93,6 +94,11 @@ inputs:
     draft:
       type: boolean
       default: false
+    issue:
+      type: integer
+      minimum: 0
+      default: 0
+      description: Associated issue number, or 0 for none. When set, the pull request body must reference it.
   required:
     - worktreePath
     - branch
@@ -302,165 +308,26 @@ jobs:
         dataOutputOverrides:
           - specName: statusResult
             lifetime: workflow
-      - name: commit
+      - name: deliver-change
         dependsOn:
           - step: inspect-candidate-status
             condition:
               type: succeeded
         task:
-          type: model_method
-          modelType: "@swamp/git"
-          modelName: ${{ "merelinux-worktree-" + run.id }}
-          methodName: commit
+          type: workflow
+          workflowIdOrName: "@jeremy/mere-delivery/deliver-change"
           inputs:
-            repoPath: ${{ inputs.worktreePath }}
-            message: ${{ inputs.commitMessage }}
-            paths: ${{ inputs.allowedPaths }}
-            addAll: false
-        dataOutputOverrides:
-          - specName: commitResult
-            lifetime: workflow
-      - name: push
-        dependsOn:
-          - step: commit
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelType: "@swamp/git"
-          modelName: ${{ "merelinux-worktree-" + run.id }}
-          methodName: push
-          inputs:
-            repoPath: ${{ inputs.worktreePath }}
-            remote: origin
+            worktreePath: ${{ inputs.worktreePath }}
             branch: ${{ inputs.branch }}
-            setUpstream: true
-            force: false
-      - name: inspect-pushed-diff
-        dependsOn:
-          - step: push
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelType: "@swamp/git"
-          modelName: ${{ "merelinux-worktree-" + run.id }}
-          methodName: diff
-          inputs:
-            repoPath: ${{ inputs.worktreePath }}
-            base: ${{ inputs.baseSha }}
-            head: HEAD
-            nameOnly: true
-            threeWay: true
-        dataOutputOverrides:
-          - specName: diffResult
-            lifetime: workflow
-      - name: assert-pushed-diff-scoped
-        dependsOn:
-          - step: inspect-pushed-diff
-            condition:
-              type: succeeded
-        task:
-          type: assert
-          expr: >-
-            data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.size() > 0 &&
-            data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files.all(path, inputs.allowedPaths.exists(allowed, allowed == path))
-          message: The pushed diff is empty or contains a path outside the accepted recipe proposal.
-          severity: high
-      - name: plan-pr
-        dependsOn:
-          - step: assert-pushed-diff-scoped
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelIdOrName: ${{ inputs.prModel }}
-          methodName: planPr
-          inputs:
-            change:
-              schemaVersion: 1
-              targetRepository: jhuntwork/merelinux
-              sourceRepository: jhuntwork/merelinux
-              base:
-                ref: main
-                sha: ${{ inputs.baseSha }}
-              head:
-                ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
-              changedPaths: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
-              checks:
-                - name: recipe-validation
-                  required: true
-                  outcome: passed
-                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/validate-recipe" }}
-                  detail: The selected recipe validated, built, imported, installed, and passed its exact-argv smoke check.
-              submission:
-                title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
-                draft: ${{ inputs.draft }}
-      - name: apply-pr
-        dependsOn:
-          - step: plan-pr
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelIdOrName: ${{ inputs.prModel }}
-          methodName: applyPr
-          inputs:
-            change:
-              schemaVersion: 1
-              targetRepository: jhuntwork/merelinux
-              sourceRepository: jhuntwork/merelinux
-              base:
-                ref: main
-                sha: ${{ inputs.baseSha }}
-              head:
-                ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
-              changedPaths: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
-              checks:
-                - name: recipe-validation
-                  required: true
-                  outcome: passed
-                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/validate-recipe" }}
-                  detail: The selected recipe validated, built, imported, installed, and passed its exact-argv smoke check.
-              submission:
-                title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
-                draft: ${{ inputs.draft }}
-            plan: >-
-              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
-      - name: verify-pr
-        dependsOn:
-          - step: apply-pr
-            condition:
-              type: succeeded
-        task:
-          type: model_method
-          modelIdOrName: ${{ inputs.prModel }}
-          methodName: verifyPr
-          inputs:
-            change:
-              schemaVersion: 1
-              targetRepository: jhuntwork/merelinux
-              sourceRepository: jhuntwork/merelinux
-              base:
-                ref: main
-                sha: ${{ inputs.baseSha }}
-              head:
-                ref: ${{ inputs.branch }}
-                sha: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "commitResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.sha }}
-              changedPaths: ${{ data.query('modelName == "merelinux-worktree-' + run.id + '" && specName == "diffResult" && tags.workflowRunId == "' + run.id + '"')[0].attributes.files }}
-              checks:
-                - name: recipe-validation
-                  required: true
-                  outcome: passed
-                  evidenceRef: ${{ "swamp://local/workflow/" + run.id + "/validate-recipe" }}
-                  detail: The selected recipe validated, built, imported, installed, and passed its exact-argv smoke check.
-              submission:
-                title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
-                draft: ${{ inputs.draft }}
-            result: >-
-              ${{ data.query('modelName == "' + inputs.prModel + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
+            baseSha: ${{ inputs.baseSha }}
+            allowedPaths: ${{ inputs.allowedPaths }}
+            commitMessage: ${{ inputs.commitMessage }}
+            title: ${{ inputs.title }}
+            body: ${{ inputs.body }}
+            profile: merelinux
+            repository: jhuntwork/merelinux
+            prBinding: ${{ inputs.prModel }}
+            draft: ${{ inputs.draft }}
+            issue: ${{ inputs.issue }}
+            checkName: recipe-validation
+            checkDetail: The recipe validated, built, imported, installed, and passed its exact-argv smoke check.
