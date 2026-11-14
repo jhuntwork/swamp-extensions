@@ -46,6 +46,7 @@ Deno.test("prepareDescription renders context through the shared PR adapter", as
     model.methods.prepareDescription.arguments.parse({
       profile: "mere",
       prBinding: "pr",
+      title: "Fix GPU discovery",
       maintainerContext,
     }),
     {
@@ -74,6 +75,78 @@ Deno.test("prepareDescription renders context through the shared PR adapter", as
   );
 });
 
+Deno.test("Mere Release subjects force an empty description policy", async () => {
+  const { written, context } = recorder();
+  let request: Record<string, unknown> | undefined;
+  await model.methods.prepareDescription.execute(
+    model.methods.prepareDescription.arguments.parse({
+      profile: "mere",
+      prBinding: "pr",
+      title: "Release 0.23.3",
+    }),
+    {
+      ...context,
+      runModel: (value: { arguments: Record<string, unknown> }) => {
+        request = value.arguments;
+        return Promise.resolve({
+          ok: true as const,
+          resources: [{
+            specName: "descriptionCheck",
+            attributes: {
+              ok: true,
+              body: "",
+              policy: "none",
+              style: "paragraph",
+            },
+          }],
+        });
+      },
+    } as never,
+  );
+  assertEquals(request?.policy, "none");
+  assertEquals((written[0].data as { body: string }).body, "");
+  assertEquals((written[0].data as { policy: string }).policy, "none");
+});
+Deno.test("optional descriptions do not require structured context", async () => {
+  const { written, context } = recorder();
+  let request: Record<string, unknown> | undefined;
+  await model.methods.prepareDescription.execute(
+    model.methods.prepareDescription.arguments.parse({
+      profile: "merelinux",
+      prBinding: "pr",
+      title: "ollama: add version 0.40.16",
+      descriptionPolicy: "optional",
+      body: "Add the native Ollama package and its Vulkan runtime.",
+    }),
+    {
+      ...context,
+      runModel: (value: { arguments: Record<string, unknown> }) => {
+        request = value.arguments;
+        return Promise.resolve({
+          ok: true as const,
+          resources: [{
+            specName: "descriptionCheck",
+            attributes: {
+              ok: true,
+              body: "Add the native Ollama package and its Vulkan runtime.",
+              policy: "optional",
+              style: "markdown",
+            },
+          }],
+        });
+      },
+    } as never,
+  );
+  assertEquals(request?.policy, "optional");
+  assertEquals(
+    (written[0].data as { body: string }).body,
+    "Add the native Ollama package and its Vulkan runtime.",
+  );
+  assertEquals(
+    (written[0].data as { maintainerContext?: unknown }).maintainerContext,
+    undefined,
+  );
+});
 Deno.test("violations are recorded first and then thrown", async () => {
   const { written, context } = recorder();
   await assertRejects(

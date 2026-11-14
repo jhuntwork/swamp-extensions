@@ -3,7 +3,7 @@ import { model } from "./mod.ts";
 
 Deno.test("model exposes the stable PR contract", () => {
   assertEquals(model.type, "@jeremy/github-pr");
-  assertEquals(model.version, "2026.11.14.1");
+  assertEquals(model.version, "2026.11.14.2");
   assertEquals(Object.keys(model.resources).sort(), [
     "applied",
     "descriptionCheck",
@@ -79,6 +79,66 @@ Deno.test("checkDescription renders structured maintainer context", async () => 
   assertEquals((written[0].data as { policy: string }).policy, "maintainer");
 });
 
+Deno.test("checkDescription permits intentional empty bodies in explicit modes", async () => {
+  for (const policy of ["none", "optional"] as const) {
+    const written: Array<{ spec: string; data: unknown }> = [];
+    await model.methods.checkDescription.execute(
+      model.methods.checkDescription.arguments.parse({
+        body: "",
+        policy,
+      }),
+      {
+        globalArgs: {},
+        writeResource: (spec: string, _name: string, data: unknown) => {
+          written.push({ spec, data });
+          return Promise.resolve({ name: spec });
+        },
+      } as never,
+    );
+    assertEquals((written[0].data as { ok: boolean }).ok, true, policy);
+    assertEquals((written[0].data as { body: string }).body, "", policy);
+  }
+});
+
+Deno.test("checkDescription accepts a concise optional summary without context", async () => {
+  const written: Array<{ spec: string; data: unknown }> = [];
+  await model.methods.checkDescription.execute(
+    model.methods.checkDescription.arguments.parse({
+      body: "Add the native package and its Vulkan runtime.",
+      policy: "optional",
+    }),
+    {
+      globalArgs: {},
+      writeResource: (spec: string, _name: string, data: unknown) => {
+        written.push({ spec, data });
+        return Promise.resolve({ name: spec });
+      },
+    } as never,
+  );
+  assertEquals((written[0].data as { ok: boolean }).ok, true);
+  assertEquals(
+    (written[0].data as { body: string }).body,
+    "Add the native package and its Vulkan runtime.",
+  );
+});
+
+Deno.test("checkDescription rejects a nonempty none-policy body", async () => {
+  await assertRejects(
+    () =>
+      model.methods.checkDescription.execute(
+        model.methods.checkDescription.arguments.parse({
+          body: "Unnecessary release commentary.",
+          policy: "none",
+        }),
+        {
+          globalArgs: {},
+          writeResource: () => Promise.resolve({ name: "descriptionCheck" }),
+        } as never,
+      ),
+    Error,
+    "requires an empty description",
+  );
+});
 Deno.test("checkDescription records every violation first and then throws", async () => {
   const written: Array<{ spec: string; data: unknown }> = [];
   const ctx = {

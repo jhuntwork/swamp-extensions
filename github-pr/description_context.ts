@@ -28,7 +28,25 @@ export const MaintainerContextSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type MaintainerContext = z.infer<typeof MaintainerContextSchema>;
-export const DescriptionPolicySchema = z.enum(["legacy", "maintainer"]);
+
+/** Optional workflow input; null is treated like an omitted context. */
+export const OptionalMaintainerContextSchema = z.preprocess(
+  (value) => value == null ? undefined : value,
+  MaintainerContextSchema.optional(),
+);
+
+/**
+ * Description modes are explicit because an empty body can be intentional:
+ * releases use "none", self-describing changes use "optional", and only
+ * changes that need explanation use "maintainer". "legacy" preserves the
+ * pre-context packet behavior.
+ */
+export const DescriptionPolicySchema = z.enum([
+  "legacy",
+  "none",
+  "optional",
+  "maintainer",
+]);
 export type DescriptionPolicy = z.infer<typeof DescriptionPolicySchema>;
 
 /** No model call and no invented rationale: render only facts the author supplied. */
@@ -51,14 +69,25 @@ export function checkDescriptionContext(
   context: unknown,
   policy: DescriptionPolicy = "legacy",
 ): string[] {
-  if (context === undefined) {
+  const supplied = context == null ? undefined : context;
+  if (policy === "none") {
+    return [
+      ...(body.trim() === "" ? [] : [
+        "description policy 'none' requires an empty description",
+      ]),
+      ...(supplied === undefined ? [] : [
+        "description policy 'none' does not accept maintainer context",
+      ]),
+    ];
+  }
+  if (supplied === undefined) {
     return policy === "maintainer"
       ? [
         "maintainer context is required: supply kind=change with problem and rationale, or kind=upstream with release context; put execution evidence in checks/reports",
       ]
       : [];
   }
-  const parsed = MaintainerContextSchema.safeParse(context);
+  const parsed = MaintainerContextSchema.safeParse(supplied);
   if (!parsed.success) {
     return [
       "invalid maintainer context: " +

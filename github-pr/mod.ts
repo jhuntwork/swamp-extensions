@@ -6,7 +6,7 @@ import { checkPullRequestDescription } from "./description_policy.ts";
 import {
   checkDescriptionContext,
   DescriptionPolicySchema,
-  MaintainerContextSchema,
+  OptionalMaintainerContextSchema,
   renderMaintainerContext,
 } from "./description_context.ts";
 import {
@@ -22,7 +22,7 @@ const CheckDescriptionArgs = z.object({
   body: z.string().default("").meta({ data: true }).describe(
     "Legacy body, or the exact rendered body when maintainer context is supplied.",
   ),
-  maintainerContext: MaintainerContextSchema.optional().meta({ data: true }),
+  maintainerContext: OptionalMaintainerContextSchema.meta({ data: true }),
   policy: DescriptionPolicySchema.default("legacy"),
   style: z.enum(["paragraph", "markdown"]).default("paragraph").describe(
     "The style a delivery profile allows; paragraph is the default rule",
@@ -35,7 +35,7 @@ const DescriptionCheckSchema = z.object({
   violations: z.array(z.string()),
   body: z.string(),
   policy: DescriptionPolicySchema,
-  maintainerContext: MaintainerContextSchema.optional(),
+  maintainerContext: OptionalMaintainerContextSchema,
   schemaVersion: z.literal(1),
 });
 const ChangeInputSchema = z.union([ChangeSchema, PacketSchema]);
@@ -75,7 +75,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.14.1",
+  version: "2026.11.14.2",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -130,6 +130,13 @@ export const model = {
     toVersion: "2026.11.14.1",
     description:
       "Separate maintainer context from execution evidence; bind rendered descriptions and their policy into change receipts. Legacy packets remain valid. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.14.2",
+    description:
+      "Allow explicit none and optional description policies, including intentional empty PR bodies, while retaining maintainer context for changes that need it. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -193,12 +200,17 @@ export const model = {
         args: z.infer<typeof CheckDescriptionArgs>,
         ctx: Context,
       ) => {
-        const body = args.maintainerContext && args.body === ""
+        const body = args.maintainerContext && args.body === "" &&
+            args.policy !== "none" && args.policy !== "optional"
           ? renderMaintainerContext(args.maintainerContext)
           : args.body;
         const violations = [
           ...checkDescriptionContext(body, args.maintainerContext, args.policy),
-          ...checkPullRequestDescription(body, args.style),
+          ...checkPullRequestDescription(
+            body,
+            args.style,
+            args.policy === "none" || args.policy === "optional",
+          ),
         ];
         const handle = await ctx.writeResource(
           "descriptionCheck",

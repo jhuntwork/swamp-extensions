@@ -50,6 +50,14 @@ inputs:
       minLength: 1
       maxLength: 256
       description: Pull-request title.
+    descriptionPolicy:
+      type: string
+      enum:
+        - none
+        - optional
+        - maintainer
+      default: maintainer
+      description: Use none for Mere releases, optional for self-describing changes, or maintainer when the diff needs explanation.
     maintainerContext:
       type: object
       properties:
@@ -60,7 +68,7 @@ inputs:
         verification: {type: string}
       required: [kind, problem, rationale]
       additionalProperties: false
-      description: Explain the user-visible problem and why this approach fixes it. Optional consequences and focused verification must help review; keep run status and operator assurances in reports.
+      description: Optional reviewer context for changes that need explanation.
     body:
       type: string
       default: ""
@@ -89,7 +97,6 @@ inputs:
     - commitMessage
     - title
     - prModel
-    - maintainerContext
 jobs:
   - name: validate-and-deliver
     steps:
@@ -237,6 +244,7 @@ jobs:
             allowedPaths: ${{ inputs.allowedPaths }}
             commitMessage: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
+            descriptionPolicy: ${{ inputs.descriptionPolicy }}
             body: ${{ inputs.body }}
             maintainerContext: ${{ inputs.maintainerContext }}
             profile: mere
