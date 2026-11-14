@@ -3,7 +3,7 @@ import { requirePullRequestDescription } from "./description_policy.ts";
 import {
   checkDescriptionContext,
   DescriptionPolicySchema,
-  MaintainerContextSchema,
+  OptionalMaintainerContextSchema,
 } from "./description_context.ts";
 
 const GitShaSchema = z.string()
@@ -57,7 +57,7 @@ export const SubmissionSchema = z.object({
   /** Absent means "paragraph". A delivery profile opts into "markdown". */
   descriptionStyle: z.enum(["paragraph", "markdown"]).optional(),
   descriptionPolicy: DescriptionPolicySchema.optional(),
-  maintainerContext: MaintainerContextSchema.optional(),
+  maintainerContext: OptionalMaintainerContextSchema,
 });
 
 /** The delivery facts the GitHub adapter needs before it computes its receipt. */
@@ -233,6 +233,8 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
   requirePullRequestDescription(
     packet.submission.body,
     packet.submission.descriptionStyle,
+    packet.submission.descriptionPolicy === "none" ||
+      packet.submission.descriptionPolicy === "optional",
   );
   return packet;
 }
@@ -251,6 +253,8 @@ export async function materializeChange(raw: unknown): Promise<Packet> {
   requirePullRequestDescription(
     change.submission.body,
     change.submission.descriptionStyle,
+    change.submission.descriptionPolicy === "none" ||
+      change.submission.descriptionPolicy === "optional",
   );
   const payload = {
     schemaVersion: change.schemaVersion,

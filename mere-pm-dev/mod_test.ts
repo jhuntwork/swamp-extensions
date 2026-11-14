@@ -80,6 +80,7 @@ Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery",
     true,
   );
   assertEquals(text.includes("maintainerContext:"), true);
+  assertEquals(text.includes("descriptionPolicy:"), true);
   assertEquals(text.includes("profile: mere\n"), true);
   assertEquals(text.includes("repository: jhuntwork/mere\n"), true);
   assertEquals(text.includes("methodName: commit"), false);

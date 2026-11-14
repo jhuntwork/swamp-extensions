@@ -28,11 +28,20 @@ inputs:
     body:
       type: string
       default: ""
-      description: Optional compatibility body; if supplied it must exactly match the rendered maintainer context.
+      description: Optional compatibility body; if supplied it must exactly match the rendered context.
+    descriptionPolicy:
+      type: string
+      enum:
+        - legacy
+        - none
+        - optional
+        - maintainer
+      default: maintainer
+      description: none requires an empty body; optional permits an empty self-describing change; maintainer requires structured context.
     maintainerContext:
       type: object
       additionalProperties: true
-      description: "Reviewer facts only: kind=change requires problem and rationale; kind=upstream supplies release summary. Execution evidence stays in checks/reports."
+      description: Reviewer facts for maintainer mode. Omit this for none or optional descriptions.
     profile:
       type: string
       enum:
@@ -74,7 +83,6 @@ inputs:
     - allowedPaths
     - commitMessage
     - title
-    - maintainerContext
     - profile
     - repository
     - prBinding
@@ -93,6 +101,8 @@ jobs:
           inputs:
             profile: ${{ inputs.profile }}
             prBinding: ${{ inputs.prBinding }}
+            title: ${{ inputs.title }}
+            descriptionPolicy: ${{ inputs.descriptionPolicy }}
             maintainerContext: ${{ inputs.maintainerContext }}
             body: ${{ inputs.body }}
         dependsOn: []
@@ -305,7 +315,7 @@ jobs:
                 body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
-                descriptionPolicy: maintainer
+                descriptionPolicy: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.policy }}
                 maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
         dependsOn:
           - step: push
@@ -341,7 +351,7 @@ jobs:
                 body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
-                descriptionPolicy: maintainer
+                descriptionPolicy: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.policy }}
                 maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
@@ -379,7 +389,7 @@ jobs:
                 body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
-                descriptionPolicy: maintainer
+                descriptionPolicy: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.policy }}
                 maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
             result: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}

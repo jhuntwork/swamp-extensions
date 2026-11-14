@@ -29,6 +29,26 @@ Deno.test("keeps relevant technical context and focused evidence", () => {
   }
 });
 
+Deno.test("explicit none and optional policies allow intentional empty bodies", () => {
+  assertEquals(checkPullRequestDescription("", "paragraph"), [
+    "the description is empty",
+  ]);
+  assertEquals(checkPullRequestDescription("", "paragraph", true), []);
+  assertEquals(checkDescriptionContext("", undefined, "none"), []);
+  assertEquals(checkDescriptionContext("", undefined, "optional"), []);
+  assertEquals(
+    checkDescriptionContext("Unnecessary text.", undefined, "none"),
+    ["description policy 'none' requires an empty description"],
+  );
+  assertEquals(
+    checkDescriptionContext(
+      "",
+      { kind: "upstream", summary: "Release notes" },
+      "none",
+    ),
+    ["description policy 'none' does not accept maintainer context"],
+  );
+});
 Deno.test("renders and binds structured maintainer context to the exact body", () => {
   const context = {
     kind: "change" as const,

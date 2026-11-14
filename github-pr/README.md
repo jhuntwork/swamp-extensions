@@ -37,14 +37,22 @@ draft.
 
 ## PR description contract
 
-By default every submission must have one concise, maintainer-facing paragraph
-of at most 2,000 characters. The adapter rejects empty or multi-paragraph
-bodies, headings, lists, code fences, pipeline, automation, test-status, and
-operator-environment reassurance. The diff and pipeline results remain the
-source of truth for implementation details and checks.
+By default a legacy submission must have one concise, maintainer-facing
+paragraph of at most 2,000 characters. The adapter rejects empty or
+multi-paragraph bodies, headings, lists, code fences, pipeline, automation,
+test-status, and operator-environment reassurance. The diff and pipeline
+results remain the source of truth for implementation details and checks.
 
-Mere delivery uses the maintainer policy. Callers supply structured
-`maintainerContext` instead of an execution transcript:
+A caller chooses the description policy when an empty body is meaningful:
+
+- `none` requires an empty body. Mere release subjects use this policy.
+- `optional` permits an empty body for a self-describing change, or checks a
+  supplied paragraph without requiring structured context.
+- `maintainer` requires structured context and renders it into the exact body.
+
+Mere delivery infers `none` for `Release X.Y.Z` subjects, so a release cannot
+acquire explanatory prose accidentally. The shared delivery workflow defaults
+to `maintainer` for other changes.
 
 ```json
 {
@@ -59,9 +67,8 @@ Mere delivery uses the maintainer policy. Callers supply structured
 The fields are rendered in that order into the exact body carried by the change
 packet. A `kind: upstream` context carries a release summary or verified
 changelog notes and may use the profile's markdown style. The shared delivery
-boundary rejects a missing context, a body that does not match it, or obvious
-operator reassurance before it commits or pushes. Execution evidence belongs
-in checks and Swamp reports.
+boundary checks the selected policy before it commits or pushes. Execution
+evidence belongs in checks and Swamp reports.
 
 A delivery profile may opt into `submission.descriptionStyle: markdown`. That
 style also allows blank lines and lists, up to 4,000 characters, so quoted

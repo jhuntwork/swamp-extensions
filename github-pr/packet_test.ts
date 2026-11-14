@@ -72,6 +72,56 @@ Deno.test("adapter rejects process and formatting boilerplate in descriptions", 
   );
 });
 
+Deno.test("none and optional policies accept empty packet descriptions", async () => {
+  for (const descriptionPolicy of ["none", "optional"] as const) {
+    const packet = await requirePacketOrChange({
+      ...input,
+      schemaVersion: 1 as const,
+      submission: {
+        ...input.submission,
+        body: "",
+        descriptionPolicy,
+      },
+    });
+    assertEquals(packet.submission.body, "");
+    assertEquals(packet.submission.descriptionPolicy, descriptionPolicy);
+  }
+});
+
+Deno.test("none policy rejects context and nonempty bodies", async () => {
+  await assertRejects(
+    () =>
+      requirePacketOrChange({
+        ...input,
+        schemaVersion: 1 as const,
+        submission: {
+          ...input.submission,
+          body: "Release details.",
+          descriptionPolicy: "none" as const,
+        },
+      }),
+    Error,
+    "requires an empty description",
+  );
+  await assertRejects(
+    () =>
+      requirePacketOrChange({
+        ...input,
+        schemaVersion: 1 as const,
+        submission: {
+          ...input.submission,
+          body: "",
+          descriptionPolicy: "none" as const,
+          maintainerContext: {
+            kind: "upstream" as const,
+            summary: "Release details.",
+          },
+        },
+      }),
+    Error,
+    "does not accept maintainer context",
+  );
+});
 Deno.test("maintainer policy requires context and carries it through the packet", async () => {
   const context = {
     kind: "change" as const,

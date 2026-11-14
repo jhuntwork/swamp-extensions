@@ -12,7 +12,7 @@ delivery that names the profile follows the new rule.
 | Rule | `mere` (package manager) | `merelinux` (recipes) |
 | --- | --- | --- |
 | Subject length | 80 | 69 |
-| PR description | Structured maintainer context rendered into the body | Same, with upstream markdown notes allowed |
+| PR description | `none` for releases, `optional` for self-describing changes, `maintainer` when explanation is needed | Same, with upstream markdown notes allowed |
 | Bare subject required | `Release X.Y.Z` | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
@@ -20,6 +20,11 @@ delivery that names the profile follows the new rule.
 | PR description style | one paragraph | markdown: lists and blank lines allowed |
 
 Both profiles also require the pull request title to equal the commit subject.
+
+The delivery workflow defaults to `maintainer` for ordinary changes. Set
+`descriptionPolicy: optional` when the subject and diff already explain the
+change, or `descriptionPolicy: none` for a Mere release. Mere `Release X.Y.Z`
+subjects are forced to `none` even if a caller supplies another policy.
 
 The status and description rules are separate. Status claims are statements the
 pipeline reports better than a commit message: that tests pass, that the change

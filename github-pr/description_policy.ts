@@ -25,10 +25,12 @@ export type DescriptionStyle = "paragraph" | "markdown";
 export function checkPullRequestDescription(
   body: string,
   style: DescriptionStyle = "paragraph",
+  allowEmpty = false,
 ): string[] {
   const violations: string[] = [];
   const normalized = body.trim();
   if (normalized.length === 0) {
+    if (allowEmpty) return violations;
     violations.push("the description is empty");
     return violations;
   }
@@ -74,8 +76,9 @@ export function checkPullRequestDescription(
 export function requirePullRequestDescription(
   body: string,
   style: DescriptionStyle = "paragraph",
+  allowEmpty = false,
 ): void {
-  const violations = checkPullRequestDescription(body, style);
+  const violations = checkPullRequestDescription(body, style, allowEmpty);
   if (violations.length > 0) {
     throw new Error(`PR description policy: ${violations.join("; ")}`);
   }

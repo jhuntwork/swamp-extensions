@@ -25,18 +25,31 @@ const CheckCommitArgs = z.object({
   prBody: z.string().optional(),
 });
 
+const DescriptionPolicySchema = z.enum([
+  "legacy",
+  "none",
+  "optional",
+  "maintainer",
+]);
+const OptionalContextSchema = z.preprocess(
+  (value) => value == null ? undefined : value,
+  z.record(z.string(), z.unknown()).optional(),
+);
+
 const DescriptionArgs = z.object({
   profile: z.enum(PROFILE_NAMES),
   prBinding: z.string().min(1),
-  maintainerContext: z.record(z.string(), z.unknown()).meta({ data: true }),
+  title: z.string().min(1),
+  descriptionPolicy: DescriptionPolicySchema.default("maintainer"),
+  maintainerContext: OptionalContextSchema.meta({ data: true }),
   body: z.string().default("").meta({ data: true }),
 });
 const DescriptionSchema = z.object({
   profile: z.enum(PROFILE_NAMES),
   body: z.string(),
   style: z.enum(["paragraph", "markdown"]),
-  policy: z.literal("maintainer"),
-  maintainerContext: z.record(z.string(), z.unknown()),
+  policy: DescriptionPolicySchema,
+  maintainerContext: OptionalContextSchema,
 });
 
 const CommitCheckSchema = z.object({
@@ -131,7 +144,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.14.1",
+  version: "2026.11.14.2",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -153,6 +166,13 @@ export const model = {
     toVersion: "2026.11.14.1",
     description:
       "Require structured maintainer context at the shared PR boundary; retain execution evidence in checks and reports. Delivery callers must supply maintainerContext. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.14.2",
+    description:
+      "Allow explicit none and optional pull-request description policies, and infer an empty description for Mere Release subjects. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -182,30 +202,36 @@ export const model = {
           throw new Error("prepareDescription requires cross-behavior access");
         }
         const style = PROFILES[args.profile].descriptionStyle;
+        const policy = args.profile === "mere" &&
+            /^Release [0-9]+\.[0-9]+\.[0-9]+$/.test(args.title)
+          ? "none"
+          : args.descriptionPolicy;
         const checked = await ctx.runModel({
           definition: args.prBinding,
           method: "checkDescription",
           arguments: {
             body: args.body,
-            maintainerContext: args.maintainerContext,
-            policy: "maintainer",
+            policy,
             style,
+            ...(args.maintainerContext
+              ? { maintainerContext: args.maintainerContext }
+              : {}),
           },
         });
         if (!checked.ok) throw new Error(checked.error.message);
         const resource = checked.resources.find((r) =>
           r.specName === "descriptionCheck"
         );
-        const result = z.object({
+        const parsed = z.object({
           ok: z.literal(true),
           body: z.string(),
-          policy: z.literal("maintainer"),
+          policy: DescriptionPolicySchema,
           style: z.literal(style),
-          maintainerContext: z.record(z.string(), z.unknown()),
+          maintainerContext: OptionalContextSchema,
         }).parse(resource?.attributes);
         const data = DescriptionSchema.parse({
           profile: args.profile,
-          ...result,
+          ...parsed,
         });
         return {
           dataHandles: [
