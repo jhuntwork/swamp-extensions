@@ -95,7 +95,7 @@ Deno.test("deliver-change refuses a message that breaks the profile before it co
         "--input",
         `title=${message.split("\n")[0]}`,
         "--input",
-        "body=Explains the change.",
+        'maintainerContext:json={"kind":"change","problem":"The requested change addresses a maintainer-visible defect.","rationale":"Use the scoped implementation that fixes the defect without unrelated changes."}',
         "--input",
         `profile=${profile}`,
         "--input",
@@ -184,7 +184,7 @@ async function deliver(
     "--input",
     `title=${message}`,
     "--input",
-    `body=${body}`,
+    `maintainerContext:json=${JSON.stringify({ kind: "upstream", summary: body })}`,
     "--input",
     "profile=merelinux",
     "--input",
@@ -255,6 +255,38 @@ Deno.test("a body that breaks the description policy stops the run before anythi
       String(find("check-description")?.error).includes(
         "headings or code fences",
       ),
+      true,
+    );
+    assertEquals(find("commit")?.status, "skipped");
+    assertEquals(find("push")?.status, "skipped");
+    assertEquals(await sh(remote, "branch", "--list", "bump-x-2"), "");
+    assertEquals(await sh(work, "rev-parse", "HEAD"), base);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("operator reassurance is rejected before commit or push", async () => {
+  const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
+  try {
+    await repoWithExtensions(dir);
+    const { remote, work, base, sh } = await fixture(
+      dir,
+      "x: upgrade to 2",
+      false,
+    );
+    const run = await deliver(
+      dir,
+      work,
+      base,
+      "No host installation or kernel changes.",
+      "x: upgrade to 2",
+    );
+    const find = (n: string) => stepsOf(run).find((s) => s.name === n);
+    assertEquals(run.status, "failed");
+    assertEquals(find("check-description")?.status, "failed");
+    assertEquals(
+      String(find("check-description")?.error).includes("operator reassurance"),
       true,
     );
     assertEquals(find("commit")?.status, "skipped");

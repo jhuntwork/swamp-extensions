@@ -3,7 +3,7 @@ import { model } from "./mod.ts";
 
 Deno.test("model exposes the stable PR contract", () => {
   assertEquals(model.type, "@jeremy/github-pr");
-  assertEquals(model.version, "2026.11.13.2");
+  assertEquals(model.version, "2026.11.14.1");
   assertEquals(Object.keys(model.resources).sort(), [
     "applied",
     "descriptionCheck",
@@ -50,6 +50,33 @@ Deno.test("checkDescription records and passes a body that meets the policy", as
   );
   assertEquals(written[0].spec, "descriptionCheck");
   assertEquals((written[0].data as { ok: boolean }).ok, true);
+});
+
+Deno.test("checkDescription renders structured maintainer context", async () => {
+  const written: Array<{ spec: string; data: unknown }> = [];
+  const context = {
+    kind: "change" as const,
+    problem: "GPU discovery cannot see the device sysfs tree.",
+    rationale: "Expose sysfs only in interactive shells with a read-only bind.",
+  };
+  await model.methods.checkDescription.execute(
+    model.methods.checkDescription.arguments.parse({
+      maintainerContext: context,
+      policy: "maintainer",
+    }),
+    {
+      globalArgs: {},
+      writeResource: (spec: string, _name: string, data: unknown) => {
+        written.push({ spec, data });
+        return Promise.resolve({ name: spec });
+      },
+    } as never,
+  );
+  assertEquals(
+    (written[0].data as { body: string }).body,
+    "GPU discovery cannot see the device sysfs tree. Expose sysfs only in interactive shells with a read-only bind.",
+  );
+  assertEquals((written[0].data as { policy: string }).policy, "maintainer");
 });
 
 Deno.test("checkDescription records every violation first and then throws", async () => {

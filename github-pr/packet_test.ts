@@ -72,6 +72,39 @@ Deno.test("adapter rejects process and formatting boilerplate in descriptions", 
   );
 });
 
+Deno.test("maintainer policy requires context and carries it through the packet", async () => {
+  const context = {
+    kind: "change" as const,
+    problem: "GPU discovery cannot see the device sysfs tree.",
+    rationale: "Expose sysfs only in interactive shells with a read-only bind.",
+  };
+  const accepted = await requirePacketOrChange({
+    ...input,
+    schemaVersion: 1 as const,
+    submission: {
+      ...input.submission,
+      body:
+        "GPU discovery cannot see the device sysfs tree. Expose sysfs only in interactive shells with a read-only bind.",
+      descriptionPolicy: "maintainer" as const,
+      maintainerContext: context,
+    },
+  });
+  assertEquals(accepted.submission.maintainerContext, context);
+  await assertRejects(
+    () =>
+      requirePacketOrChange({
+        ...input,
+        schemaVersion: 1 as const,
+        submission: {
+          ...input.submission,
+          descriptionPolicy: "maintainer" as const,
+        },
+      }),
+    Error,
+    "maintainer context is required",
+  );
+});
+
 Deno.test("adapter independently enforces packet identity and check invariants", async () => {
   const packet = await createPacket(input);
 

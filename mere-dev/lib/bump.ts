@@ -49,6 +49,7 @@ export interface Summary {
   title: string;
   commitMessage: string;
   body: string;
+  maintainerContext: { kind: "upstream"; summary: string };
   labels: string[];
 }
 
@@ -76,6 +77,7 @@ export function renderSummary(input: SummaryInput): Summary {
     title,
     commitMessage: title,
     body,
+    maintainerContext: { kind: "upstream", summary: body },
     labels,
   };
 }

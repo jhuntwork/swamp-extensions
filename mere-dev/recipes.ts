@@ -132,6 +132,10 @@ const SummarySchema = z.object({
   title: z.string(),
   commitMessage: z.string(),
   body: z.string(),
+  maintainerContext: z.object({
+    kind: z.literal("upstream"),
+    summary: z.string(),
+  }),
   labels: z.array(z.string()),
   dependents: z.array(z.string()),
   schemaVersion: z.literal(1),
@@ -344,7 +348,7 @@ async function listRecipes(root: string): Promise<string[]> {
 /** Behavior that reads, validates, builds, and edits Merelinux recipes. */
 export const model = {
   type: "@jeremy/mere-dev/recipes",
-  version: "2026.11.13.7",
+  version: "2026.11.14.1",
   description:
     "Read, scan, edit, and summarize merelinux recipes. Running mere on them belongs to @jeremy/mere-dev.",
   upgrades: [{
@@ -375,6 +379,13 @@ export const model = {
     toVersion: "2026.11.13.7",
     description:
       "Add recordReviewNotes and the review-notes resource: changelog entries quoted from the source archive, checked against the file, go at the top of a bump's PR body. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.14.1",
+    description:
+      "Carry structured maintainer context with bump summaries so delivery can separate reviewer rationale from execution evidence. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

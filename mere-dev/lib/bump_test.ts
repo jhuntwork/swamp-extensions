@@ -53,6 +53,7 @@ Deno.test("a bump body contains only upstream release context", () => {
   });
   assertEquals(s.title, "zlib-ng: upgrade to 2.3.4");
   assertEquals(s.commitMessage, s.title);
+  assertEquals(s.maintainerContext, { kind: "upstream", summary: s.body });
   assertEquals(s.labels, ["automated", "bump"]);
   assertEquals(
     s.body,

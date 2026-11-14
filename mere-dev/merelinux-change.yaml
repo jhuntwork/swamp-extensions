@@ -83,6 +83,17 @@ inputs:
       type: string
       minLength: 1
       maxLength: 256
+    maintainerContext:
+      type: object
+      properties:
+        kind: {type: string, const: change}
+        problem: {type: string, minLength: 1}
+        rationale: {type: string, minLength: 1}
+        consequences: {type: string}
+        verification: {type: string}
+      required: [kind, problem, rationale]
+      additionalProperties: false
+      description: Reviewer-facing package purpose and design rationale; optional compatibility or focused verification. Commands, totals and operator assurances belong in reports.
     body:
       type: string
       maxLength: 65535
@@ -111,6 +122,7 @@ inputs:
     - smokeArgv
     - commitMessage
     - title
+    - maintainerContext
 jobs:
   - name: prepare
     description: Create a clean MereLinux clone and branch from the explicit immutable base.
@@ -287,6 +299,7 @@ jobs:
             commitMessage: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
             body: ${{ inputs.body }}
+            maintainerContext: ${{ inputs.maintainerContext }}
             profile: merelinux
             repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prModel }}

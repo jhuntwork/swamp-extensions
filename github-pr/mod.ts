@@ -4,6 +4,12 @@ import { planPr, PlanSchema } from "./plan.ts";
 import { ChangeSchema, PacketSchema } from "./packet.ts";
 import { checkPullRequestDescription } from "./description_policy.ts";
 import {
+  checkDescriptionContext,
+  DescriptionPolicySchema,
+  MaintainerContextSchema,
+  renderMaintainerContext,
+} from "./description_context.ts";
+import {
   preflight,
   PreflightConfigSchema,
   PreflightResultSchema,
@@ -13,7 +19,11 @@ import { VerificationSchema, verifyPr } from "./verify.ts";
 const Globals = PreflightConfigSchema;
 
 const CheckDescriptionArgs = z.object({
-  body: z.string().describe("The pull request body to check"),
+  body: z.string().default("").meta({ data: true }).describe(
+    "Legacy body, or the exact rendered body when maintainer context is supplied.",
+  ),
+  maintainerContext: MaintainerContextSchema.optional().meta({ data: true }),
+  policy: DescriptionPolicySchema.default("legacy"),
   style: z.enum(["paragraph", "markdown"]).default("paragraph").describe(
     "The style a delivery profile allows; paragraph is the default rule",
   ),
@@ -23,6 +33,9 @@ const DescriptionCheckSchema = z.object({
   ok: z.boolean(),
   style: z.enum(["paragraph", "markdown"]),
   violations: z.array(z.string()),
+  body: z.string(),
+  policy: DescriptionPolicySchema,
+  maintainerContext: MaintainerContextSchema.optional(),
   schemaVersion: z.literal(1),
 });
 const ChangeInputSchema = z.union([ChangeSchema, PacketSchema]);
@@ -62,7 +75,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.13.2",
+  version: "2026.11.14.1",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -110,6 +123,13 @@ export const model = {
     toVersion: "2026.11.13.2",
     description:
       "Let a delivery profile opt into a markdown description style (lists and blank lines allowed, headings and code fences refused), and add checkDescription so a body can be checked before anything is pushed. The default rule is unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.14.1",
+    description:
+      "Separate maintainer context from execution evidence; bind rendered descriptions and their policy into change receipts. Legacy packets remain valid. Global arguments unchanged.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -173,13 +193,24 @@ export const model = {
         args: z.infer<typeof CheckDescriptionArgs>,
         ctx: Context,
       ) => {
-        const violations = checkPullRequestDescription(args.body, args.style);
+        const body = args.maintainerContext && args.body === ""
+          ? renderMaintainerContext(args.maintainerContext)
+          : args.body;
+        const violations = [
+          ...checkDescriptionContext(body, args.maintainerContext, args.policy),
+          ...checkPullRequestDescription(body, args.style),
+        ];
         const handle = await ctx.writeResource(
           "descriptionCheck",
           "description-check",
           {
             ok: violations.length === 0,
             style: args.style,
+            body,
+            policy: args.policy,
+            ...(args.maintainerContext
+              ? { maintainerContext: args.maintainerContext }
+              : {}),
             violations,
             schemaVersion: 1,
           },

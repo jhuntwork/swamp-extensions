@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.11.13.7"
+version: "2026.11.14.1"
 description: >
   Everything for MereLinux recipes: scan the tree and look up upstream
   versions, bump or rebuild a recipe, and validate, build, and import it with
@@ -33,6 +33,7 @@ additionalFiles:
   - recipes_test.ts
   - upstream_drift_test.ts
   - build_summary_test.ts
+  - workflow_contract_test.ts
 platforms:
   - linux-x86_64
   - linux-aarch64
