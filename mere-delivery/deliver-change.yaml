@@ -27,6 +27,12 @@ inputs:
       type: string
     body:
       type: string
+      default: ""
+      description: Optional compatibility body; if supplied it must exactly match the rendered maintainer context.
+    maintainerContext:
+      type: object
+      additionalProperties: true
+      description: "Reviewer facts only: kind=change requires problem and rationale; kind=upstream supplies release summary. Execution evidence stays in checks/reports."
     profile:
       type: string
       enum:
@@ -68,7 +74,7 @@ inputs:
     - allowedPaths
     - commitMessage
     - title
-    - body
+    - maintainerContext
     - profile
     - repository
     - prBinding
@@ -77,6 +83,21 @@ inputs:
 jobs:
   - name: prepare
     steps:
+      - name: check-description
+        description: Render maintainer facts and reject execution commentary before any commit or push
+        task:
+          type: model_method
+          modelType: "@jeremy/mere-delivery"
+          modelName: ${{ "mere-delivery-policy-" + run.id }}
+          methodName: prepareDescription
+          inputs:
+            profile: ${{ inputs.profile }}
+            prBinding: ${{ inputs.prBinding }}
+            maintainerContext: ${{ inputs.maintainerContext }}
+            body: ${{ inputs.body }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
       - name: check-message
         description: The commit message, PR title and branch meet the standards
         task:
@@ -89,22 +110,10 @@ jobs:
             title: ${{ inputs.title }}
             branch: ${{ inputs.branch }}
             profile: ${{ inputs.profile }}
-            prBody: ${{ inputs.body }}
+            prBody: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
             issue: ${{ inputs.issue }}
-        dependsOn: []
-        weight: 0
-        allowFailure: false
-      - name: check-description
-        description: The pull request body meets the description policy, checked before anything is committed or pushed
-        task:
-          type: behavior
-          behavior: ${{ inputs.prBinding }}
-          methodName: checkDescription
-          inputs:
-            body: ${{ inputs.body }}
-            style: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
         dependsOn:
-          - step: check-message
+          - step: check-description
             condition:
               type: succeeded
         weight: 0
@@ -123,7 +132,7 @@ jobs:
           - specName: statusResult
             lifetime: workflow
         dependsOn:
-          - step: check-description
+          - step: check-message
             condition:
               type: succeeded
         weight: 0
@@ -293,9 +302,11 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
-                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
+                descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
+                descriptionPolicy: maintainer
+                maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
         dependsOn:
           - step: push
             condition:
@@ -327,9 +338,11 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
-                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
+                descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
+                descriptionPolicy: maintainer
+                maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
             plan: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "plan" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:
@@ -363,9 +376,11 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.body }}
                 draft: ${{ inputs.draft }}
-                descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
+                descriptionStyle: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.style }}
+                descriptionPolicy: maintainer
+                maintainerContext: ${{ data.latest("mere-delivery-policy-" + run.id, "pr-description").attributes.maintainerContext }}
             result: >-
               ${{ data.query('modelName == "' + inputs.prBinding + '" && specName == "applied" && tags.workflowRunId == "' + run.id + '"')[0].attributes }}
         dependsOn:

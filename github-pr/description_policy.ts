@@ -1,9 +1,17 @@
 const PROCESS_BOILERPLATE = [
-  /\b(?:github actions|pipeline|ci)\b/i,
-  /\b(?:validated|built) locally\b/i,
-  /\btests?\s+(?:pass(?:ed)?|succeed(?:ed)?)\b/i,
+  /\b(?:github actions|pipeline|ci)\s+(?:pass(?:ed)?|succeed(?:ed)?|is green|was green)\b/i,
+  /\b(?:validated|built|tested) locally\b/i,
+  /(?:^|[.!?:\n]\s*)(?:(?:all|the)\s+)?(?:\d+\s+)?tests?\s+(?:pass(?:ed)?|succeed(?:ed)?)\b/i,
   /\b(?:opened|created) by (?:automation|a bot|recipe-bump)\b/i,
-  /\b(?:workflow|run)\s+(?:[0-9a-f]{8}-[0-9a-f-]{27,}|#?\d+)\b/i,
+  /\b(?:workflow run|run id)\s+(?:[0-9a-f]{8}-[0-9a-f-]{27,}|#?\d+)\b/i,
+];
+
+// Deliberately narrow canned operator assurances, not bans on security terms.
+// For example, unchanged recipe-build isolation is relevant maintainer context.
+const OPERATOR_ASSURANCES = [
+  /\bno host installation(?: or kernel changes)?\s*(?:[.!?]|$)/i,
+  /\b(?:host|host system)\s+(?:is|was|remains|left)\s+unchanged\b/i,
+  /\b(?:nothing|no packages?)\s+(?:was |were )?installed (?:on|into) (?:the |your )?host\b/i,
 ];
 
 export type DescriptionStyle = "paragraph" | "markdown";
@@ -53,6 +61,11 @@ export function checkPullRequestDescription(
       );
       break;
     }
+  }
+  if (OPERATOR_ASSURANCES.some((pattern) => pattern.test(normalized))) {
+    violations.push(
+      "move operator reassurance about the host environment to execution reports; describe the relevant behavior or security boundary instead",
+    );
   }
   return violations;
 }

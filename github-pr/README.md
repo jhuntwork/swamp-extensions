@@ -39,18 +39,39 @@ draft.
 
 By default every submission must have one concise, maintainer-facing paragraph
 of at most 2,000 characters. The adapter rejects empty or multi-paragraph
-bodies, headings, lists, code fences, and pipeline, automation, or test-status
-boilerplate. The diff and pipeline results remain the source of truth for
-implementation details and checks.
+bodies, headings, lists, code fences, pipeline, automation, test-status, and
+operator-environment reassurance. The diff and pipeline results remain the
+source of truth for implementation details and checks.
+
+Mere delivery uses the maintainer policy. Callers supply structured
+`maintainerContext` instead of an execution transcript:
+
+```json
+{
+  "kind": "change",
+  "problem": "The shell cannot discover GPU devices.",
+  "rationale": "Expose read-only sysfs only in interactive shells.",
+  "consequences": "Recipe-build namespaces retain their existing mount policy.",
+  "verification": "The regression test verifies writes fail with EROFS."
+}
+```
+
+The fields are rendered in that order into the exact body carried by the change
+packet. A `kind: upstream` context carries a release summary or verified
+changelog notes and may use the profile's markdown style. The shared delivery
+boundary rejects a missing context, a body that does not match it, or obvious
+operator reassurance before it commits or pushes. Execution evidence belongs
+in checks and Swamp reports.
 
 A delivery profile may opt into `submission.descriptionStyle: markdown`. That
 style also allows blank lines and lists, up to 4,000 characters, so quoted
 upstream release notes stay readable. Headings and code fences are refused in
-both styles, and so is the boilerplate. A packet that does not set the field
-gets the default.
+both styles. A packet that does not set the field gets the default paragraph
+rule.
 
-`checkDescription` applies the same rule to a body on its own, with no GitHub
-access, so a workflow can reject a bad body before it commits or pushes.
+`checkDescription` applies the same rule to a body or maintainer context on its
+own, with no GitHub access, so a workflow can reject a bad description before it
+commits or pushes.
 
 
 Use this model at the end of a repository-owned workflow:

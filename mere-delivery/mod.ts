@@ -25,6 +25,20 @@ const CheckCommitArgs = z.object({
   prBody: z.string().optional(),
 });
 
+const DescriptionArgs = z.object({
+  profile: z.enum(PROFILE_NAMES),
+  prBinding: z.string().min(1),
+  maintainerContext: z.record(z.string(), z.unknown()).meta({ data: true }),
+  body: z.string().default("").meta({ data: true }),
+});
+const DescriptionSchema = z.object({
+  profile: z.enum(PROFILE_NAMES),
+  body: z.string(),
+  style: z.enum(["paragraph", "markdown"]),
+  policy: z.literal("maintainer"),
+  maintainerContext: z.record(z.string(), z.unknown()),
+});
+
 const CommitCheckSchema = z.object({
   profile: z.enum(PROFILE_NAMES),
   ok: z.boolean(),
@@ -36,6 +50,19 @@ const CommitCheckSchema = z.object({
 });
 
 type Context = {
+  runModel?: (
+    request: {
+      definition: string;
+      method: string;
+      arguments: Record<string, unknown>;
+    },
+  ) => Promise<
+    | {
+      ok: true;
+      resources: Array<{ specName?: string; attributes?: unknown }>;
+    }
+    | { ok: false; error: { message: string } }
+  >;
   logger?: {
     info: (message: string, fields?: Record<string, unknown>) => void;
   };
@@ -104,7 +131,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.13.2",
+  version: "2026.11.14.1",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -122,8 +149,22 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.14.1",
+    description:
+      "Require structured maintainer context at the shared PR boundary; retain execution evidence in checks and reports. Delivery callers must supply maintainerContext. Global arguments unchanged.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
+    description: {
+      description:
+        "Canonical maintainer description validated before commit or push",
+      schema: DescriptionSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
     commitCheck: {
       description: "Result of checking a commit message against a profile",
       schema: CommitCheckSchema,
@@ -132,6 +173,47 @@ export const model = {
     },
   },
   methods: {
+    prepareDescription: {
+      description:
+        "Render and validate maintainer context using the repository profile and shared GitHub PR contract. Execution evidence belongs in checks/reports, never this context.",
+      arguments: DescriptionArgs,
+      execute: async (args: z.infer<typeof DescriptionArgs>, ctx: Context) => {
+        if (!ctx.runModel) {
+          throw new Error("prepareDescription requires cross-behavior access");
+        }
+        const style = PROFILES[args.profile].descriptionStyle;
+        const checked = await ctx.runModel({
+          definition: args.prBinding,
+          method: "checkDescription",
+          arguments: {
+            body: args.body,
+            maintainerContext: args.maintainerContext,
+            policy: "maintainer",
+            style,
+          },
+        });
+        if (!checked.ok) throw new Error(checked.error.message);
+        const resource = checked.resources.find((r) =>
+          r.specName === "descriptionCheck"
+        );
+        const result = z.object({
+          ok: z.literal(true),
+          body: z.string(),
+          policy: z.literal("maintainer"),
+          style: z.literal(style),
+          maintainerContext: z.record(z.string(), z.unknown()),
+        }).parse(resource?.attributes);
+        const data = DescriptionSchema.parse({
+          profile: args.profile,
+          ...result,
+        });
+        return {
+          dataHandles: [
+            await ctx.writeResource("description", "pr-description", data),
+          ],
+        };
+      },
+    },
     checkCommit: {
       description:
         "Check a commit message (before committing) or an existing commit (after) against a repository profile: subject length and pattern, body rules, trailers, status claims, PR title equal to subject, branch name, author, and a referenced issue. Records every violation, then throws if there are any.",

@@ -35,6 +35,45 @@ Deno.test("a conforming message is recorded as ok", async () => {
   assertEquals(written[0].data.ok, true);
 });
 
+Deno.test("prepareDescription renders context through the shared PR adapter", async () => {
+  const { written, context } = recorder();
+  const maintainerContext = {
+    kind: "change",
+    problem: "The shell cannot discover GPU devices.",
+    rationale: "Expose read-only sysfs only in interactive shells.",
+  };
+  await model.methods.prepareDescription.execute(
+    model.methods.prepareDescription.arguments.parse({
+      profile: "mere",
+      prBinding: "pr",
+      maintainerContext,
+    }),
+    {
+      ...context,
+      runModel: (_request: { arguments: Record<string, unknown> }) =>
+        Promise.resolve({
+          ok: true as const,
+          resources: [{
+            specName: "descriptionCheck",
+            attributes: {
+              ok: true,
+              body:
+                "The shell cannot discover GPU devices. Expose read-only sysfs only in interactive shells.",
+              policy: "maintainer",
+              style: "paragraph",
+              maintainerContext,
+            },
+          }],
+        }),
+    } as never,
+  );
+  assertEquals(written[0].spec, "description");
+  assertEquals(
+    (written[0].data as { body: string }).body,
+    "The shell cannot discover GPU devices. Expose read-only sysfs only in interactive shells.",
+  );
+});
+
 Deno.test("violations are recorded first and then thrown", async () => {
   const { written, context } = recorder();
   await assertRejects(

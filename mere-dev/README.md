@@ -145,13 +145,15 @@ that is not in it, comparing with whitespace collapsed and nothing else, so a
 reworded entry fails. It also refuses an entry with an `@mention`, a `#number`
 or a code fence, which would notify a stranger or link an unrelated issue.
 `summarize` puts the entries, grouped by release, at the top of the pull request
-body, followed by the release link. Approve the step and resume the run.
+body, followed by the release link, and records the same text as upstream
+`maintainerContext`. Approve the step and resume the run.
 `--input reviewNotes=false` skips the pause for an unattended run, and the body
 is then only the upstream release link. The markdown body needs a profile that
 allows it; `merelinux` does.
 
 `recipe-rebuild` increments a recipe's release number and rebuilds it; you must
-give a `reason`, which becomes the pull-request body.
+give a `reason`, which becomes the problem field in the structured pull-request
+context. The workflow supplies the rebuild rationale separately.
 
 ## Packaged `merelinux-change` workflow
 

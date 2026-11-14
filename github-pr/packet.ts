@@ -1,5 +1,10 @@
 import { z } from "npm:zod@4.4.3";
 import { requirePullRequestDescription } from "./description_policy.ts";
+import {
+  checkDescriptionContext,
+  DescriptionPolicySchema,
+  MaintainerContextSchema,
+} from "./description_context.ts";
 
 const GitShaSchema = z.string()
   .regex(/^[0-9a-fA-F]{40,64}$/, "must be a full hexadecimal Git object ID")
@@ -51,6 +56,8 @@ export const SubmissionSchema = z.object({
   draft: z.boolean(),
   /** Absent means "paragraph". A delivery profile opts into "markdown". */
   descriptionStyle: z.enum(["paragraph", "markdown"]).optional(),
+  descriptionPolicy: DescriptionPolicySchema.optional(),
+  maintainerContext: MaintainerContextSchema.optional(),
 });
 
 /** The delivery facts the GitHub adapter needs before it computes its receipt. */
@@ -215,6 +222,14 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
   if (!readiness.ready) {
     throw new Error("Change packet is not ready for submission");
   }
+  const contextErrors = checkDescriptionContext(
+    packet.submission.body,
+    packet.submission.maintainerContext,
+    packet.submission.descriptionPolicy,
+  );
+  if (contextErrors.length) {
+    throw new Error(`PR description policy: ${contextErrors.join("; ")}`);
+  }
   requirePullRequestDescription(
     packet.submission.body,
     packet.submission.descriptionStyle,
@@ -225,6 +240,14 @@ export async function requirePacket(raw: unknown): Promise<Packet> {
 /** Compute the integrity receipt internally so callers never need a packet behavior. */
 export async function materializeChange(raw: unknown): Promise<Packet> {
   const change = ChangeSchema.parse(raw);
+  const contextErrors = checkDescriptionContext(
+    change.submission.body,
+    change.submission.maintainerContext,
+    change.submission.descriptionPolicy,
+  );
+  if (contextErrors.length) {
+    throw new Error(`PR description policy: ${contextErrors.join("; ")}`);
+  }
   requirePullRequestDescription(
     change.submission.body,
     change.submission.descriptionStyle,

@@ -12,7 +12,7 @@ delivery that names the profile follows the new rule.
 | Rule | `mere` (package manager) | `merelinux` (recipes) |
 | --- | --- | --- |
 | Subject length | 80 | 69 |
-| Body | Allowed, for the reason behind a feature or fix | Allowed, for what a new package is |
+| PR description | Structured maintainer context rendered into the body | Same, with upstream markdown notes allowed |
 | Bare subject required | `Release X.Y.Z` | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
@@ -21,10 +21,12 @@ delivery that names the profile follows the new rule.
 
 Both profiles also require the pull request title to equal the commit subject.
 
-Status claims are statements the pipeline reports better than a commit message:
-that tests pass, that the change was built or tested locally, that CI passed,
-or that an AI tool generated it. The patterns are narrow. Saying why a test was
-added is fine.
+The status and description rules are separate. Status claims are statements the
+pipeline reports better than a commit message: that tests pass, that the change
+was built or tested locally, that CI passed, or that an AI tool generated it.
+The description contract also refuses operator-environment reassurance such as
+"No host installation or kernel changes." Explain the relevant behavior or
+security boundary instead. Saying why a test was added is fine.
 
 The values come from each repository's own history. Run against the last 286
 non-merge commits of `mere` and 400 of `merelinux`, the profiles flag one `mere`
@@ -51,9 +53,8 @@ pull request body cites the issue.
 `@jeremy/mere-delivery/deliver-change` takes a worktree that already holds the
 implementation and a baseSha it was cut from:
 
-1. check the message, title and branch against the profile;
-2. check the pull request body against the profile's description style, before
-   anything is committed or pushed;
+1. render and check structured maintainer context through `@jeremy/github-pr`;
+2. check the message, title and branch against the profile;
 3. commit only `allowedPaths`, unless they have no uncommitted changes, which is
    the case when an earlier run already made the commit;
 4. read the commit at the branch tip back and check it again, including the
@@ -74,7 +75,7 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input 'allowedPaths:json=["src/repo_sources.zig"]' \
   --input 'commitMessage=Fix a leak in the repo cache' \
   --input 'title=Fix a leak in the repo cache' \
-  --input 'body=The cache buffer was not freed when the download failed. Fixes #42.' \
+  --input 'maintainerContext:json={"kind":"change","problem":"The cache buffer is not freed when the download fails. Fixes #42.","rationale":"Release the buffer on the failure path while preserving the existing retry behavior.","verification":"The regression test exercises a failed download and checks that the buffer is released."}' \
   --input profile=mere \
   --input repository=jhuntwork/mere \
   --input prBinding=mere-pr \

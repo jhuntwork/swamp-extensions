@@ -50,6 +50,17 @@ inputs:
       minLength: 1
       maxLength: 256
       description: Pull-request title.
+    maintainerContext:
+      type: object
+      properties:
+        kind: {type: string, const: change}
+        problem: {type: string, minLength: 1}
+        rationale: {type: string, minLength: 1}
+        consequences: {type: string}
+        verification: {type: string}
+      required: [kind, problem, rationale]
+      additionalProperties: false
+      description: Explain the user-visible problem and why this approach fixes it. Optional consequences and focused verification must help review; keep run status and operator assurances in reports.
     body:
       type: string
       default: ""
@@ -78,6 +89,7 @@ inputs:
     - commitMessage
     - title
     - prModel
+    - maintainerContext
 jobs:
   - name: validate-and-deliver
     steps:
@@ -226,6 +238,7 @@ jobs:
             commitMessage: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
             body: ${{ inputs.body }}
+            maintainerContext: ${{ inputs.maintainerContext }}
             profile: mere
             repository: jhuntwork/mere
             prBinding: ${{ inputs.prModel }}
