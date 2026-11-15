@@ -4,12 +4,6 @@ import { planPr, PlanSchema } from "./plan.ts";
 import { ChangeSchema, PacketSchema } from "./packet.ts";
 import { checkPullRequestDescription } from "./description_policy.ts";
 import {
-  checkDescriptionContext,
-  DescriptionPolicySchema,
-  OptionalMaintainerContextSchema,
-  renderMaintainerContext,
-} from "./description_context.ts";
-import {
   preflight,
   PreflightConfigSchema,
   PreflightResultSchema,
@@ -19,11 +13,7 @@ import { VerificationSchema, verifyPr } from "./verify.ts";
 const Globals = PreflightConfigSchema;
 
 const CheckDescriptionArgs = z.object({
-  body: z.string().default("").meta({ data: true }).describe(
-    "Legacy body, or the exact rendered body when maintainer context is supplied.",
-  ),
-  maintainerContext: OptionalMaintainerContextSchema.meta({ data: true }),
-  policy: DescriptionPolicySchema.default("legacy"),
+  body: z.string().describe("The pull request body to check"),
   style: z.enum(["paragraph", "markdown"]).default("paragraph").describe(
     "The style a delivery profile allows; paragraph is the default rule",
   ),
@@ -33,9 +23,6 @@ const DescriptionCheckSchema = z.object({
   ok: z.boolean(),
   style: z.enum(["paragraph", "markdown"]),
   violations: z.array(z.string()),
-  body: z.string(),
-  policy: DescriptionPolicySchema,
-  maintainerContext: OptionalMaintainerContextSchema,
   schemaVersion: z.literal(1),
 });
 const ChangeInputSchema = z.union([ChangeSchema, PacketSchema]);
@@ -75,7 +62,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.15.1",
+  version: "2026.11.15.2",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -127,9 +114,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.15.1",
+    toVersion: "2026.11.15.2",
     description:
-      "Allow an empty PR body so delivery can preserve an empty commit body exactly.",
+      "Stop rendering maintainer context; preserve the exact commit body, including its formatting, in the pull request.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
@@ -193,29 +180,13 @@ export const model = {
         args: z.infer<typeof CheckDescriptionArgs>,
         ctx: Context,
       ) => {
-        const body = args.maintainerContext && args.body === "" &&
-            args.policy !== "none" && args.policy !== "optional"
-          ? renderMaintainerContext(args.maintainerContext)
-          : args.body;
-        const violations = [
-          ...checkDescriptionContext(body, args.maintainerContext, args.policy),
-          ...checkPullRequestDescription(
-            body,
-            args.style,
-            args.policy === "none" || args.policy === "optional",
-          ),
-        ];
+        const violations = checkPullRequestDescription(args.body, args.style);
         const handle = await ctx.writeResource(
           "descriptionCheck",
           "description-check",
           {
             ok: violations.length === 0,
             style: args.style,
-            body,
-            policy: args.policy,
-            ...(args.maintainerContext
-              ? { maintainerContext: args.maintainerContext }
-              : {}),
             violations,
             schemaVersion: 1,
           },

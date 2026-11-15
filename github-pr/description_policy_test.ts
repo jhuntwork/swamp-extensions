@@ -1,70 +1,39 @@
 import { assertEquals } from "jsr:@std/assert@1.0.19";
 import {
-  checkDescriptionContext,
-  renderMaintainerContext,
-} from "./description_context.ts";
-import { checkPullRequestDescription } from "./description_policy.ts";
+  checkPullRequestDescription,
+  requirePullRequestDescription,
+} from "./description_policy.ts";
 
-Deno.test("rejects operator reassurance and execution status", () => {
-  for (
-    const body of [
-      "No host installation or kernel changes.",
-      "Built locally; 861 tests passed.",
-    ]
-  ) {
-    assertEquals(checkPullRequestDescription(body).length > 0, true, body);
-  }
+Deno.test("the description policy accepts an empty body", () => {
+  assertEquals(checkPullRequestDescription(""), []);
+  requirePullRequestDescription("");
 });
 
-Deno.test("keeps relevant technical context and focused evidence", () => {
-  for (
-    const body of [
-      "Recipe-build namespaces retain their existing mount policy.",
-      "A non-recursive bind excludes writable sysfs child mounts.",
-      "The regression test verifies writes fail with EROFS.",
-      "Fix CI builds failing to locate shaderc.",
-    ]
-  ) {
+Deno.test("the description policy accepts arbitrary body content", () => {
+  const bodies = [
+    "# Heading\n\n- a list\n\ntext",
+    "text\n```\ncode\n```",
+    "x".repeat(4_001),
+    "first\n\nsecond\n\nthird",
+  ];
+  for (const body of bodies) {
     assertEquals(checkPullRequestDescription(body), [], body);
+    requirePullRequestDescription(body);
   }
 });
 
-Deno.test("explicit none and optional policies allow intentional empty bodies", () => {
-  assertEquals(checkPullRequestDescription("", "paragraph"), [
-    "the description is empty",
-  ]);
-  assertEquals(checkPullRequestDescription("", "paragraph", true), []);
-  assertEquals(checkDescriptionContext("", undefined, "none"), []);
-  assertEquals(checkDescriptionContext("", undefined, "optional"), []);
+Deno.test("the legacy style argument does not impose formatting rules", () => {
   assertEquals(
-    checkDescriptionContext("Unnecessary text.", undefined, "none"),
-    ["description policy 'none' requires an empty description"],
+    checkPullRequestDescription("# heading\n\n- item", "paragraph"),
+    [],
   );
   assertEquals(
-    checkDescriptionContext(
-      "",
-      { kind: "upstream", summary: "Release notes" },
-      "none",
-    ),
-    ["description policy 'none' does not accept maintainer context"],
+    checkPullRequestDescription("```\ncode\n```", "markdown"),
+    [],
   );
 });
-Deno.test("renders and binds structured maintainer context to the exact body", () => {
-  const context = {
-    kind: "change" as const,
-    problem: "Shell GPU discovery cannot see the device sysfs tree.",
-    rationale: "Expose sysfs only in interactive shells with a read-only bind.",
-    consequences: "Recipe-build namespaces retain their existing mount policy.",
-    verification: "The regression test verifies writes fail with EROFS.",
-  };
-  const body = renderMaintainerContext(context);
-  assertEquals(checkDescriptionContext(body, context, "maintainer"), []);
-  assertEquals(
-    checkDescriptionContext(
-      `${body} No host installation or kernel changes.`,
-      context,
-      "maintainer",
-    ).length > 0,
-    true,
-  );
+
+Deno.test("requirePullRequestDescription accepts the supplied content unchanged", () => {
+  requirePullRequestDescription("unchanged");
+  assertEquals(checkPullRequestDescription("unchanged"), []);
 });
