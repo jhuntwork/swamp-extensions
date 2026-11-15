@@ -184,7 +184,7 @@ async function deliver(
     "--input",
     `title=${message.split("\n")[0]}`,
     "--input",
-    `maintainerContext:json=${JSON.stringify({ kind: "upstream", summary: body })}`,
+    `body=${body}`,
     "--input",
     "profile=merelinux",
     "--input",
@@ -262,13 +262,15 @@ Deno.test("the delivery preserves arbitrary commit body formatting", async () =>
   }
 });
 
-Deno.test("operator reassurance is rejected before commit or push", async () => {
+Deno.test("operator prose is preserved before commit or push", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
+    const operatorMessage =
+      "x: upgrade to 2\n\nNo host installation or kernel changes.";
     const { remote, work, base, sh } = await fixture(
       dir,
-      "x: upgrade to 2",
+      operatorMessage,
       false,
     );
     const run = await deliver(
@@ -276,19 +278,15 @@ Deno.test("operator reassurance is rejected before commit or push", async () => 
       work,
       base,
       "No host installation or kernel changes.",
-      "x: upgrade to 2",
+      operatorMessage,
     );
     const find = (n: string) => stepsOf(run).find((s) => s.name === n);
     assertEquals(run.status, "failed");
-    assertEquals(find("check-description")?.status, "failed");
-    assertEquals(
-      String(find("check-description")?.error).includes("operator reassurance"),
-      true,
-    );
-    assertEquals(find("commit")?.status, "skipped");
-    assertEquals(find("push")?.status, "skipped");
-    assertEquals(await sh(remote, "branch", "--list", "bump-x-2"), "");
-    assertEquals(await sh(work, "rev-parse", "HEAD"), base);
+    assertEquals(find("check-description")?.status, "succeeded");
+    assertEquals(find("commit")?.status, "succeeded");
+    assertEquals(find("push")?.status, "succeeded");
+    assertEquals(await sh(remote, "branch", "--list", "bump-x-2") !== "", true);
+    assertEquals(await sh(work, "rev-parse", "HEAD") !== base, true);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

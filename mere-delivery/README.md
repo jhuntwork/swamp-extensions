@@ -12,7 +12,7 @@ delivery that names the profile follows the new rule.
 | Rule | `mere` (package manager) | `merelinux` (recipes) |
 | --- | --- | --- |
 | Subject length | 80 | 69 |
-| PR description | `none` for releases, `optional` for self-describing changes, `maintainer` when explanation is needed | Same, with upstream markdown notes allowed |
+| PR description | Exact commit body, including an empty body | Exact commit body, including an empty body |
 | Bare subject required | `Release X.Y.Z` | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
@@ -20,17 +20,13 @@ delivery that names the profile follows the new rule.
 
 Both profiles also require the pull request title to equal the commit subject.
 
-The delivery workflow defaults to `maintainer` for ordinary changes. Set
-`descriptionPolicy: optional` when the subject and diff already explain the
-change, or `descriptionPolicy: none` for a Mere release. Mere `Release X.Y.Z`
-subjects are forced to `none` even if a caller supplies another policy.
+The delivery workflow passes the supplied body through unchanged. It does not
+render maintainer context or impose paragraph, heading, list, code-fence, length,
+status-text, or empty-body rules. The caller must supply the exact commit body.
 
-The status and description rules are separate. Status claims are statements the
-pipeline reports better than a commit message: that tests pass, that the change
-was built or tested locally, that CI passed, or that an AI tool generated it.
-The description contract also refuses operator-environment reassurance such as
-"No host installation or kernel changes." Explain the relevant behavior or
-security boundary instead. Saying why a test was added is fine.
+Status claims are checked in commit messages because the pipeline reports
+execution evidence better than a commit body. The pull request body itself is
+never supplemented with rationale, verification, consequences, or other text.
 
 The values come from each repository's own history. Run against the last 286
 non-merge commits of `mere` and 400 of `merelinux`, the profiles flag one `mere`
