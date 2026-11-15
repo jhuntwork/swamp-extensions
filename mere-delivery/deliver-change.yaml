@@ -212,6 +212,7 @@ jobs:
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
             profile: ${{ inputs.profile }}
             prBody: ${{ inputs.body }}
+            prBody: ${{ inputs.body }}
         dependsOn:
           - step: read-commit
             condition:

@@ -17,7 +17,6 @@ delivery that names the profile follows the new rule.
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
 | Branch name | lowercase words joined by `-` | lowercase, digits, `.`, `_`, `-` |
-| PR description style | one paragraph | markdown: lists and blank lines allowed |
 
 Both profiles also require the pull request title to equal the commit subject.
 
@@ -64,15 +63,13 @@ implementation and a baseSha it was cut from:
 
 1. check the message, title and branch against the profile;
 2. check that the supplied pull request body exactly matches the commit body;
-3. check the pull request body against the profile's description style, before
-   anything is committed or pushed; an empty body is valid;
-4. commit only `allowedPaths`, unless they have no uncommitted changes, which is
+3. commit only `allowedPaths`, unless they have no uncommitted changes, which is
    the case when an earlier run already made the commit;
-5. read the commit at the branch tip back and check it again, including the
+4. read the commit at the branch tip back and check it again, including the
    author and exact pull request body;
-6. check the branch's diff is non-empty and only touches `allowedPaths`;
-7. push without force;
-8. plan, create and read back the pull request with `@jeremy/github-pr`.
+5. check the branch's diff is non-empty and only touches `allowedPaths`;
+6. push without force;
+7. plan, create and read back the pull request with `@jeremy/github-pr`.
 
 Everything that can refuse a change runs before the push, so a rejected change
 leaves no branch on the remote. Running the workflow again on a branch that

@@ -39,21 +39,12 @@ draft.
 
 The pull request body is supplied by the delivery workflow and must match the
 commit body exactly. An empty commit body produces an empty pull request body.
-When a body is present, the adapter requires one concise maintainer-facing
-paragraph of at most 2,000 characters by default. The adapter rejects
-multi-paragraph bodies, headings, lists, code fences, and pipeline, automation,
-or test-status boilerplate. The diff and pipeline results remain the source of
-truth for implementation details and checks.
+The adapter does not impose a paragraph, heading, list, code-fence, length, or
+status-text format on that body. Execution evidence belongs in checks and
+reports, not in text manufactured by delivery.
 
-A delivery profile may opt into `submission.descriptionStyle: markdown`. That
-style also allows blank lines and lists, up to 4,000 characters, so quoted
-upstream release notes stay readable. Headings and code fences are refused in
-both styles. A packet that does not set the field gets the default paragraph
-rule.
-
-`checkDescription` applies the same rule to a body or maintainer context on its
-own, with no GitHub access, so a workflow can reject a bad description before it
-commits or pushes.
+`checkDescription` records the body without rewriting it. The delivery policy
+is responsible for comparing it with the commit body.
 
 
 Use this model at the end of a repository-owned workflow:

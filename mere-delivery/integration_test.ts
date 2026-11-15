@@ -230,7 +230,7 @@ type Step = { name: string; status: string; error?: string };
 const stepsOf = (run: { jobs: { steps: Step[] }[] }) =>
   run.jobs.flatMap((j) => j.steps);
 
-Deno.test("a body that breaks the description policy stops the run before anything is committed or pushed", async () => {
+Deno.test("the delivery preserves arbitrary commit body formatting", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
@@ -240,7 +240,6 @@ Deno.test("a body that breaks the description policy stops the run before anythi
       headingMessage,
       false,
     );
-    // merelinux allows markdown, so a heading is the violation.
     const run = await deliver(
       dir,
       work,
@@ -251,17 +250,13 @@ Deno.test("a body that breaks the description policy stops the run before anythi
     assertEquals(run.status, "failed");
     const steps = stepsOf(run);
     const find = (n: string) => steps.find((s) => s.name === n);
-    assertEquals(find("check-description")?.status, "failed");
-    assertEquals(
-      String(find("check-description")?.error).includes(
-        "headings or code fences",
-      ),
-      true,
-    );
-    assertEquals(find("commit")?.status, "skipped");
-    assertEquals(find("push")?.status, "skipped");
-    assertEquals(await sh(remote, "branch", "--list", "bump-x-2"), "");
-    assertEquals(await sh(work, "rev-parse", "HEAD"), base);
+    assertEquals(find("check-description")?.status, "succeeded");
+    assertEquals(find("commit")?.status, "succeeded");
+    assertEquals(find("verify-commit")?.status, "succeeded");
+    assertEquals(find("push")?.status, "succeeded");
+    const head = await sh(work, "rev-parse", "HEAD");
+    assertEquals(head === base, false);
+    assertEquals(await sh(remote, "rev-parse", "bump-x-2"), head);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
