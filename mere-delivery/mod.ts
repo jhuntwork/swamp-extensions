@@ -25,33 +25,6 @@ const CheckCommitArgs = z.object({
   prBody: z.string().optional(),
 });
 
-const DescriptionPolicySchema = z.enum([
-  "legacy",
-  "none",
-  "optional",
-  "maintainer",
-]);
-const OptionalContextSchema = z.preprocess(
-  (value) => value == null ? undefined : value,
-  z.record(z.string(), z.unknown()).optional(),
-);
-
-const DescriptionArgs = z.object({
-  profile: z.enum(PROFILE_NAMES),
-  prBinding: z.string().min(1),
-  title: z.string().min(1),
-  descriptionPolicy: DescriptionPolicySchema.default("maintainer"),
-  maintainerContext: OptionalContextSchema.meta({ data: true }),
-  body: z.string().default("").meta({ data: true }),
-});
-const DescriptionSchema = z.object({
-  profile: z.enum(PROFILE_NAMES),
-  body: z.string(),
-  style: z.enum(["paragraph", "markdown"]),
-  policy: DescriptionPolicySchema,
-  maintainerContext: OptionalContextSchema,
-});
-
 const CommitCheckSchema = z.object({
   profile: z.enum(PROFILE_NAMES),
   ok: z.boolean(),
@@ -63,19 +36,6 @@ const CommitCheckSchema = z.object({
 });
 
 type Context = {
-  runModel?: (
-    request: {
-      definition: string;
-      method: string;
-      arguments: Record<string, unknown>;
-    },
-  ) => Promise<
-    | {
-      ok: true;
-      resources: Array<{ specName?: string; attributes?: unknown }>;
-    }
-    | { ok: false; error: { message: string } }
-  >;
   logger?: {
     info: (message: string, fields?: Record<string, unknown>) => void;
   };
@@ -171,13 +131,6 @@ export const model = {
     ): Record<string, unknown> => old,
   }],
   resources: {
-    description: {
-      description:
-        "Canonical maintainer description validated before commit or push",
-      schema: DescriptionSchema,
-      lifetime: "infinite" as const,
-      garbageCollection: 20,
-    },
     commitCheck: {
       description: "Result of checking a commit message against a profile",
       schema: CommitCheckSchema,
@@ -186,53 +139,6 @@ export const model = {
     },
   },
   methods: {
-    prepareDescription: {
-      description:
-        "Render and validate maintainer context using the repository profile and shared GitHub PR contract. Execution evidence belongs in checks/reports, never this context.",
-      arguments: DescriptionArgs,
-      execute: async (args: z.infer<typeof DescriptionArgs>, ctx: Context) => {
-        if (!ctx.runModel) {
-          throw new Error("prepareDescription requires cross-behavior access");
-        }
-        const style = PROFILES[args.profile].descriptionStyle;
-        const policy = args.profile === "mere" &&
-            /^Release [0-9]+\.[0-9]+\.[0-9]+$/.test(args.title)
-          ? "none"
-          : args.descriptionPolicy;
-        const checked = await ctx.runModel({
-          definition: args.prBinding,
-          method: "checkDescription",
-          arguments: {
-            body: args.body,
-            policy,
-            style,
-            ...(args.maintainerContext
-              ? { maintainerContext: args.maintainerContext }
-              : {}),
-          },
-        });
-        if (!checked.ok) throw new Error(checked.error.message);
-        const resource = checked.resources.find((r) =>
-          r.specName === "descriptionCheck"
-        );
-        const parsed = z.object({
-          ok: z.literal(true),
-          body: z.string(),
-          policy: DescriptionPolicySchema,
-          style: z.literal(style),
-          maintainerContext: OptionalContextSchema,
-        }).parse(resource?.attributes);
-        const data = DescriptionSchema.parse({
-          profile: args.profile,
-          ...parsed,
-        });
-        return {
-          dataHandles: [
-            await ctx.writeResource("description", "pr-description", data),
-          ],
-        };
-      },
-    },
     checkCommit: {
       description:
         "Check a commit message (before committing) or an existing commit (after) against a repository profile: subject length and pattern, body rules, trailers, status claims, PR title equal to subject, branch name, author, and a referenced issue. Records every violation, then throws if there are any.",
