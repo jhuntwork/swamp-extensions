@@ -37,48 +37,14 @@ draft.
 
 ## PR description contract
 
-By default a legacy submission must have one concise, maintainer-facing
-paragraph of at most 2,000 characters. The adapter rejects empty or
-multi-paragraph bodies, headings, lists, code fences, pipeline, automation,
-test-status, and operator-environment reassurance. The diff and pipeline
-results remain the source of truth for implementation details and checks.
+The pull request body is supplied by the delivery workflow and must match the
+commit body exactly. An empty commit body produces an empty pull request body.
+The adapter does not impose a paragraph, heading, list, code-fence, length, or
+status-text format on that body. Execution evidence belongs in checks and
+reports, not in text manufactured by delivery.
 
-A caller chooses the description policy when an empty body is meaningful:
-
-- `none` requires an empty body. Mere release subjects use this policy.
-- `optional` permits an empty body for a self-describing change, or checks a
-  supplied paragraph without requiring structured context.
-- `maintainer` requires structured context and renders it into the exact body.
-
-Mere delivery infers `none` for `Release X.Y.Z` subjects, so a release cannot
-acquire explanatory prose accidentally. The shared delivery workflow defaults
-to `maintainer` for other changes.
-
-```json
-{
-  "kind": "change",
-  "problem": "The shell cannot discover GPU devices.",
-  "rationale": "Expose read-only sysfs only in interactive shells.",
-  "consequences": "Recipe-build namespaces retain their existing mount policy.",
-  "verification": "The regression test verifies writes fail with EROFS."
-}
-```
-
-The fields are rendered in that order into the exact body carried by the change
-packet. A `kind: upstream` context carries a release summary or verified
-changelog notes and may use the profile's markdown style. The shared delivery
-boundary checks the selected policy before it commits or pushes. Execution
-evidence belongs in checks and Swamp reports.
-
-A delivery profile may opt into `submission.descriptionStyle: markdown`. That
-style also allows blank lines and lists, up to 4,000 characters, so quoted
-upstream release notes stay readable. Headings and code fences are refused in
-both styles. A packet that does not set the field gets the default paragraph
-rule.
-
-`checkDescription` applies the same rule to a body or maintainer context on its
-own, with no GitHub access, so a workflow can reject a bad description before it
-commits or pushes.
+`checkDescription` records the body without rewriting it. The delivery policy
+is responsible for comparing it with the commit body.
 
 
 Use this model at the end of a repository-owned workflow:

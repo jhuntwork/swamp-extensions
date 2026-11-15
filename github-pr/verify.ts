@@ -44,8 +44,10 @@ export async function verifyPr(
   if (pr.draft !== packet.submission.draft) {
     throw new Error("GitHub PR draft state does not match packet");
   }
+  const actualBody = pr.body == null ? "" : pr.body;
   if (
-    pr.title !== packet.submission.title || pr.body !== packet.submission.body
+    pr.title !== packet.submission.title ||
+    actualBody !== packet.submission.body
   ) throw new Error("GitHub PR content does not match packet");
   if (
     pr.head?.ref !== packet.head.ref ||

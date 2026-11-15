@@ -56,20 +56,21 @@ Deno.test("adapter accepts both draft and non-draft submissions", async () => {
   assertEquals((await requirePacket(draft)).submission.draft, true);
 });
 
-Deno.test("adapter rejects process and formatting boilerplate in descriptions", async () => {
-  await assertRejects(
-    () =>
-      requirePacketOrChange({
-        ...input,
-        schemaVersion: 1 as const,
-        submission: {
-          ...input.submission,
-          body: "Built and validated locally.\n\nSee the pipeline.",
-        },
-      }),
-    Error,
-    "PR description policy",
-  );
+Deno.test("adapter preserves arbitrary commit body content", async () => {
+  const bodies = [
+    "Built and validated locally.\n\nSee the pipeline.",
+    "# Heading\n\n- a list",
+    "",
+    "x".repeat(4_001),
+  ];
+  for (const body of bodies) {
+    const result = await requirePacketOrChange({
+      ...input,
+      schemaVersion: 1 as const,
+      submission: { ...input.submission, body },
+    });
+    assertEquals(result.submission.body, body);
+  }
 });
 
 Deno.test("none and optional policies accept empty packet descriptions", async () => {
@@ -213,50 +214,23 @@ Deno.test("adapter recomputes derived readiness instead of trusting the packet",
   );
 });
 
-Deno.test("the markdown style allows lists and blank lines but still refuses headings and fences", async () => {
-  const withBody = (body: string) => ({
-    ...input,
-    schemaVersion: 1 as const,
-    submission: {
-      ...input.submission,
-      body,
-      descriptionStyle: "markdown" as const,
-    },
-  });
-  const ok = await requirePacketOrChange(
-    withBody("5.8.4:\n\n- Fix one.\n- Fix two.\n\nSee upstream."),
-  );
-  assertEquals(ok.submission.descriptionStyle, "markdown");
-  for (
-    const bad of ["# Heading\n\ntext", "text\n```\ncode\n```", "~~~\nx\n~~~"]
-  ) {
-    await assertRejects(
-      () => requirePacketOrChange(withBody(bad)),
-      Error,
-      "headings or code fences",
-    );
+Deno.test("adapter preserves body formatting regardless of description style", async () => {
+  const bodies = [
+    "5.8.4:\n\n- Fix one.\n- Fix two.\n\nSee upstream.",
+    "# Heading\n\ntext",
+    "text\n```\ncode\n```",
+    "Tests pass.",
+  ];
+  for (const body of bodies) {
+    const result = await requirePacketOrChange({
+      ...input,
+      schemaVersion: 1 as const,
+      submission: {
+        ...input.submission,
+        body,
+        descriptionStyle: "markdown" as const,
+      },
+    });
+    assertEquals(result.submission.body, body);
   }
-  await assertRejects(
-    () => requirePacketOrChange(withBody("x".repeat(4_001))),
-    Error,
-    "longer than 4,000",
-  );
-  await assertRejects(
-    () => requirePacketOrChange(withBody("Tests pass.\n\n- a")),
-    Error,
-    "boilerplate",
-  );
-});
-
-Deno.test("without an opt-in, lists and blank lines are still refused", async () => {
-  await assertRejects(
-    () =>
-      requirePacketOrChange({
-        ...input,
-        schemaVersion: 1 as const,
-        submission: { ...input.submission, body: "One.\n\n- two" },
-      }),
-    Error,
-    "one paragraph",
-  );
 });

@@ -101,15 +101,33 @@ Deno.test("title, branch and subject length are checked per profile", () => {
   assertEquals(v("mere", "Fix a leak", { branch: "fix-a-leak" }), []);
 });
 
+Deno.test("the pull request body must match the commit body", () => {
+  assertEquals(
+    v("mere", "Fix a leak", { prBody: "" }),
+    [],
+  );
+  assertEquals(
+    v("mere", "Fix a leak\n\nExplain the ownership fix.", {
+      prBody: "Explain the ownership fix.",
+    }),
+    [],
+  );
+  assertEquals(
+    v("mere", "Fix a leak", { prBody: "Manufactured explanation." }).some((x) =>
+      x.includes("exactly match the commit body")
+    ),
+    true,
+  );
+});
 Deno.test("an associated issue must be cited in the PR body", () => {
   const check = (prBody: string | undefined) =>
-    v("mere", "Fix a leak", { issue: 42, prBody });
+    v("mere", `Fix a leak\n\n${prBody ?? ""}`, { issue: 42, prBody });
   assertEquals(check("Fixes #42"), []);
-  assertEquals(check("Closes #42.\n"), []);
+  assertEquals(check("Closes #42."), []);
   assertEquals(check("Fixes #420").length, 1);
   assertEquals(check("No reference").length, 1);
   assertEquals(check(undefined).length, 1);
-  assertEquals(v("mere", "Fix a leak", { prBody: "anything" }), []);
+  assertEquals(check("").length, 1);
 });
 
 Deno.test("an existing commit is parsed with its author", () => {
