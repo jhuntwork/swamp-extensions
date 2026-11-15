@@ -23,7 +23,10 @@ const input = {
 };
 
 Deno.test("adapter computes integrity and readiness for slim change facts", async () => {
-  const packet = await requirePacketOrChange({ ...input, schemaVersion: 1 as const });
+  const packet = await requirePacketOrChange({
+    ...input,
+    schemaVersion: 1 as const,
+  });
   assertEquals(packet.schemaVersion, 1);
   assertEquals(packet.readiness, { ready: true, blockers: [] });
 });
@@ -32,7 +35,11 @@ Deno.test("adapter accepts a genuine packet and rejects tampering", async () => 
   const packet = await createPacket(input);
   await requirePacket(packet);
   await assertRejects(
-    () => requirePacket({ ...packet, submission: { ...packet.submission, title: "tampered" } }),
+    () =>
+      requirePacket({
+        ...packet,
+        submission: { ...packet.submission, title: "tampered" },
+      }),
     Error,
     "digest",
   );
@@ -74,12 +81,20 @@ Deno.test("adapter enforces packet identity and check invariants", async () => {
     "repository-relative path",
   );
   await assertRejects(
-    () => requirePacket({ ...packet, base: { ...packet.base, ref: packet.head.ref } }),
+    () =>
+      requirePacket({
+        ...packet,
+        base: { ...packet.base, ref: packet.head.ref },
+      }),
     Error,
     "must differ from the base ref",
   );
   await assertRejects(
-    () => requirePacket({ ...packet, checks: [packet.checks[0], packet.checks[0]] }),
+    () =>
+      requirePacket({
+        ...packet,
+        checks: [packet.checks[0], packet.checks[0]],
+      }),
     Error,
     "must be unique",
   );
