@@ -78,6 +78,14 @@ export function parseRawCommit(
   };
 }
 
+/** Return the body after the subject and its required blank-line separator. */
+export function commitBody(message: string): string {
+  const normalized = message.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  const firstNewline = normalized.indexOf("\n");
+  if (firstNewline < 0) return "";
+  return normalized.slice(firstNewline + 1).replace(/^\n/, "");
+}
+
 /** Every way a commit breaks the rules; empty means it conforms. */
 export function checkCommit(
   commit: CommitUnderCheck,
@@ -142,6 +150,15 @@ export function checkCommit(
     if (!new RegExp(rules.branchPattern).test(commit.branch)) {
       violations.push(
         `the branch "${commit.branch}" does not match ${rules.branchPattern}`,
+      );
+    }
+  }
+  if (commit.prBody !== undefined) {
+    const expectedBody = commitBody(message);
+    const actualBody = commit.prBody.replace(/\r\n/g, "\n");
+    if (actualBody !== expectedBody) {
+      violations.push(
+        "the pull request body must exactly match the commit body",
       );
     }
   }

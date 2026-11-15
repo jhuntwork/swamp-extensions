@@ -75,7 +75,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.14.2",
+  version: "2026.11.15.1",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -127,16 +127,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.14.1",
+    toVersion: "2026.11.15.1",
     description:
-      "Separate maintainer context from execution evidence; bind rendered descriptions and their policy into change receipts. Legacy packets remain valid. Global arguments unchanged.",
-    upgradeAttributes: (
-      old: Record<string, unknown>,
-    ): Record<string, unknown> => old,
-  }, {
-    toVersion: "2026.11.14.2",
-    description:
-      "Allow explicit none and optional description policies, including intentional empty PR bodies, while retaining maintainer context for changes that need it. Global arguments unchanged.",
+      "Allow an empty PR body so delivery can preserve an empty commit body exactly.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

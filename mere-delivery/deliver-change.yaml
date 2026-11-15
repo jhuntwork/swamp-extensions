@@ -28,20 +28,7 @@ inputs:
     body:
       type: string
       default: ""
-      description: Optional compatibility body; if supplied it must exactly match the rendered context.
-    descriptionPolicy:
-      type: string
-      enum:
-        - legacy
-        - none
-        - optional
-        - maintainer
-      default: maintainer
-      description: none requires an empty body; optional permits an empty self-describing change; maintainer requires structured context.
-    maintainerContext:
-      type: object
-      additionalProperties: true
-      description: Reviewer facts for maintainer mode. Omit this for none or optional descriptions.
+      description: Exact commit body to copy to the pull request; empty is valid when the commit has no body.
     profile:
       type: string
       enum:
@@ -224,6 +211,7 @@ jobs:
             expectedSubject: ${{ inputs.commitMessage.split("\n")[0] }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
             profile: ${{ inputs.profile }}
+            prBody: ${{ inputs.body }}
         dependsOn:
           - step: read-commit
             condition:

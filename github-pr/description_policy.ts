@@ -30,8 +30,6 @@ export function checkPullRequestDescription(
   const violations: string[] = [];
   const normalized = body.trim();
   if (normalized.length === 0) {
-    if (allowEmpty) return violations;
-    violations.push("the description is empty");
     return violations;
   }
   const limit = style === "markdown" ? 4_000 : 2_000;

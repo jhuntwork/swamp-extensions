@@ -55,18 +55,24 @@ pull request body cites the issue.
 
 ## Deliver a change
 
+The pull request body must be the exact commit body. An empty commit body
+produces an empty pull request body; the workflow does not manufacture a
+rationale, verification summary, consequences section, or other text.
+
 `@jeremy/mere-delivery/deliver-change` takes a worktree that already holds the
 implementation and a baseSha it was cut from:
 
-1. render and check structured maintainer context through `@jeremy/github-pr`;
-2. check the message, title and branch against the profile;
-3. commit only `allowedPaths`, unless they have no uncommitted changes, which is
+1. check the message, title and branch against the profile;
+2. check that the supplied pull request body exactly matches the commit body;
+3. check the pull request body against the profile's description style, before
+   anything is committed or pushed; an empty body is valid;
+4. commit only `allowedPaths`, unless they have no uncommitted changes, which is
    the case when an earlier run already made the commit;
-4. read the commit at the branch tip back and check it again, including the
-   author;
-5. check the branch's diff is non-empty and only touches `allowedPaths`;
-6. push without force;
-7. plan, create and read back the pull request with `@jeremy/github-pr`.
+5. read the commit at the branch tip back and check it again, including the
+   author and exact pull request body;
+6. check the branch's diff is non-empty and only touches `allowedPaths`;
+7. push without force;
+8. plan, create and read back the pull request with `@jeremy/github-pr`.
 
 Everything that can refuse a change runs before the push, so a rejected change
 leaves no branch on the remote. Running the workflow again on a branch that
@@ -80,7 +86,7 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input 'allowedPaths:json=["src/repo_sources.zig"]' \
   --input 'commitMessage=Fix a leak in the repo cache' \
   --input 'title=Fix a leak in the repo cache' \
-  --input 'maintainerContext:json={"kind":"change","problem":"The cache buffer is not freed when the download fails. Fixes #42.","rationale":"Release the buffer on the failure path while preserving the existing retry behavior.","verification":"The regression test exercises a failed download and checks that the buffer is released."}' \
+  --input 'body=The exact body from the commit, or an empty value for a bare subject.' \
   --input profile=mere \
   --input repository=jhuntwork/mere \
   --input prBinding=mere-pr \

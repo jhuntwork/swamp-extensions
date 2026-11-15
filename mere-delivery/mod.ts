@@ -144,7 +144,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.14.2",
+  version: "2026.11.15.1",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -163,16 +163,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.14.1",
+    toVersion: "2026.11.15.1",
     description:
-      "Require structured maintainer context at the shared PR boundary; retain execution evidence in checks and reports. Delivery callers must supply maintainerContext. Global arguments unchanged.",
-    upgradeAttributes: (
-      old: Record<string, unknown>,
-    ): Record<string, unknown> => old,
-  }, {
-    toVersion: "2026.11.14.2",
-    description:
-      "Allow explicit none and optional pull-request description policies, and infer an empty description for Mere Release subjects. Global arguments unchanged.",
+      "Require the pull request body to equal the commit body exactly, including allowing an empty body; delivery does not manufacture description text.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

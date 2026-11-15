@@ -95,7 +95,7 @@ Deno.test("deliver-change refuses a message that breaks the profile before it co
         "--input",
         `title=${message.split("\n")[0]}`,
         "--input",
-        'maintainerContext:json={"kind":"change","problem":"The requested change addresses a maintainer-visible defect.","rationale":"Use the scoped implementation that fixes the defect without unrelated changes."}',
+        "body=",
         "--input",
         `profile=${profile}`,
         "--input",
@@ -182,7 +182,7 @@ async function deliver(
     "--input",
     `commitMessage=${message}`,
     "--input",
-    `title=${message}`,
+    `title=${message.split("\n")[0]}`,
     "--input",
     `maintainerContext:json=${JSON.stringify({ kind: "upstream", summary: body })}`,
     "--input",
@@ -234,9 +234,10 @@ Deno.test("a body that breaks the description policy stops the run before anythi
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
+    const headingMessage = "Add a package\n\n# Heading\n\ntext";
     const { remote, work, base, sh } = await fixture(
       dir,
-      "x: upgrade to 2",
+      headingMessage,
       false,
     );
     // merelinux allows markdown, so a heading is the violation.
@@ -245,7 +246,7 @@ Deno.test("a body that breaks the description policy stops the run before anythi
       work,
       base,
       "# Heading\n\ntext",
-      "x: upgrade to 2",
+      headingMessage,
     );
     assertEquals(run.status, "failed");
     const steps = stepsOf(run);
@@ -308,9 +309,7 @@ Deno.test("a branch that already has its commit is not committed twice, and a di
       true,
     );
     const before = await sh(work, "rev-parse", "HEAD");
-    // The PR step fails (the fake actor), but only after the commit step was
-    // skipped and the branch was pushed exactly as it stood.
-    const run = await deliver(dir, work, base, "Fine.", "x: upgrade to 2");
+    const run = await deliver(dir, work, base, "", "x: upgrade to 2");
     const steps = stepsOf(run);
     const find = (n: string) => steps.find((s) => s.name === n);
     assertEquals(find("status")?.status, "succeeded");
@@ -335,7 +334,7 @@ Deno.test("a first run commits the allowed paths, then pushes the commit it made
       "x: upgrade to 2",
       false,
     );
-    await deliver(dir, work, base, "Fine.", "x: upgrade to 2");
+    await deliver(dir, work, base, "", "x: upgrade to 2");
     const head = await sh(work, "rev-parse", "HEAD");
     assertEquals(head === base, false);
     assertEquals(await sh(work, "log", "-1", "--format=%s"), "x: upgrade to 2");
@@ -357,7 +356,7 @@ Deno.test("a path outside the allowed list stops the run before the push", async
     await Deno.writeTextFile(join(work, "other.kdl"), "x\n");
     await sh(work, "add", "other.kdl");
     await sh(work, "commit", "-q", "-m", "x: upgrade to 2");
-    const run = await deliver(dir, work, base, "Fine.", "x: upgrade to 2");
+    const run = await deliver(dir, work, base, "", "x: upgrade to 2");
     const find = (n: string) => stepsOf(run).find((s) => s.name === n);
     assertEquals(find("assert-scoped")?.status, "failed");
     assertEquals(find("push")?.status, "skipped");
@@ -374,7 +373,7 @@ Deno.test("a branch with no change at all stops before the push instead of publi
     const { remote, work, base, sh } = await fixture(dir, "x", false);
     // Undo the edit the fixture made: a clean tree sitting on the base commit.
     await sh(work, "checkout", "--", "recipe.kdl");
-    const run = await deliver(dir, work, base, "Fine.", "x: upgrade to 2");
+    const run = await deliver(dir, work, base, "", "x: upgrade to 2");
     const find = (n: string) => stepsOf(run).find((s) => s.name === n);
     assertEquals(run.status, "failed");
     assertEquals(find("status")?.status, "succeeded");
