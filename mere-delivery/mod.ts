@@ -1,6 +1,11 @@
 // deno-lint-ignore-file no-import-prefix
 import { z } from "npm:zod@4.4.3";
-import { checkCommit, parseRawCommit } from "./commit_policy.ts";
+import {
+  checkCommit,
+  IssueActionSchema,
+  parseRawCommit,
+  preparePullRequestBody,
+} from "./commit_policy.ts";
 import { PROFILE_NAMES, PROFILES } from "./profiles.ts";
 
 const CheckCommitArgs = z.object({
@@ -22,7 +27,22 @@ const CheckCommitArgs = z.object({
   issue: z.number().int().min(0).default(0).describe(
     "Associated issue number, or 0 for none; when set, prBody must reference it.",
   ),
+  issueAction: IssueActionSchema.default("reference").describe(
+    "Whether the prepared pull request references the issue or closes it with Fixes #N.",
+  ),
   prBody: z.string().optional(),
+});
+
+const PullRequestBodyArgs = z.object({
+  body: z.string().default(""),
+  issue: z.number().int().min(0).default(0),
+  issueAction: IssueActionSchema.default("reference"),
+});
+const PullRequestBodySchema = z.object({
+  body: z.string(),
+  issue: z.number().int().min(0),
+  issueAction: IssueActionSchema,
+  schemaVersion: z.literal(1),
 });
 
 const CommitCheckSchema = z.object({
@@ -32,6 +52,8 @@ const CommitCheckSchema = z.object({
   violations: z.array(z.string()),
   checkedExistingCommit: z.boolean(),
   descriptionStyle: z.enum(["paragraph", "markdown"]),
+  issue: z.number().int().min(0).default(0),
+  issueAction: IssueActionSchema.default("reference"),
   schemaVersion: z.literal(1),
 });
 
@@ -73,6 +95,7 @@ export async function runCheck(
       branch: args.branch,
       authorEmail,
       issue: args.issue > 0 ? args.issue : undefined,
+      issueAction: args.issueAction,
       prBody: args.prBody,
     },
     PROFILES[args.profile],
@@ -88,6 +111,8 @@ export async function runCheck(
     violations,
     checkedExistingCommit: existing,
     descriptionStyle: PROFILES[args.profile].descriptionStyle,
+    issue: args.issue,
+    issueAction: args.issueAction,
     schemaVersion: 1,
   });
   context.logger?.info("Commit check finished: {count} violation(s)", {
@@ -104,7 +129,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.15.3",
+  version: "2026.11.17.1",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -123,14 +148,21 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.15.3",
+    toVersion: "2026.11.17.1",
     description:
-      "Allow Mere commit bodies and pull-request descriptions to use natural Markdown and author the pull-request description independently from the commit body.",
+      "Add explicit issue actions and canonical Fixes #N pull-request references without inferring closure from an issue number.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }],
   resources: {
+    pullRequestBody: {
+      description:
+        "Canonical pull-request body with the requested issue action applied",
+      schema: PullRequestBodySchema,
+      lifetime: "workflow" as const,
+      garbageCollection: 20,
+    },
     commitCheck: {
       description: "Result of checking a commit message against a profile",
       schema: CommitCheckSchema,
@@ -139,6 +171,31 @@ export const model = {
     },
   },
   methods: {
+    preparePullRequestBody: {
+      description:
+        "Apply the explicit issue action to a pull-request body without inferring closure from the issue number",
+      arguments: PullRequestBodyArgs,
+      execute: async (
+        args: z.infer<typeof PullRequestBodyArgs>,
+        ctx: Context,
+      ) => {
+        const body = preparePullRequestBody(
+          args.body,
+          args.issue,
+          args.issueAction,
+        );
+        return {
+          dataHandles: [
+            await ctx.writeResource("pullRequestBody", "prepared-body", {
+              body,
+              issue: args.issue,
+              issueAction: args.issueAction,
+              schemaVersion: 1,
+            }),
+          ],
+        };
+      },
+    },
     checkCommit: {
       description:
         "Check a commit message (before committing) or an existing commit (after) against a repository profile: subject length and pattern, body rules, trailers, status claims, PR title equal to subject, branch name, author, and a referenced issue. Records every violation, then throws if there are any.",

@@ -35,6 +35,42 @@ Deno.test("a conforming message is recorded as ok", async () => {
   assertEquals(written[0].data.ok, true);
 });
 
+Deno.test("preparePullRequestBody writes a canonical closing footer", async () => {
+  const { written, context } = recorder();
+  await model.methods.preparePullRequestBody.execute(
+    model.methods.preparePullRequestBody.arguments.parse({
+      body: "The change matters.",
+      issue: 42,
+      issueAction: "fixes",
+    }),
+    context,
+  );
+  assertEquals(written[0].spec, "pullRequestBody");
+  assertEquals(
+    (written[0].data as { body: string }).body,
+    "The change matters.\n\nFixes #42",
+  );
+});
+
+Deno.test("model records the current issue-action contract", () => {
+  assertEquals(model.version, "2026.11.17.1");
+  assertEquals("preparePullRequestBody" in model.methods, true);
+});
+
+Deno.test("commit-check resources accept records from the previous schema", () => {
+  const oldRecord = model.resources.commitCheck.schema.parse({
+    profile: "mere",
+    ok: true,
+    subject: "Fix a leak",
+    violations: [],
+    checkedExistingCommit: false,
+    descriptionStyle: "markdown",
+    schemaVersion: 1,
+  });
+  assertEquals(oldRecord.issue, 0);
+  assertEquals(oldRecord.issueAction, "reference");
+});
+
 Deno.test("violations are recorded first and then thrown", async () => {
   const { written, context } = recorder();
   await assertRejects(

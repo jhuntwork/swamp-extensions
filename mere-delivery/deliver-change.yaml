@@ -57,6 +57,13 @@ inputs:
       minimum: 0
       default: 0
       description: Associated issue number, or 0 for none. When set, the pull request body must reference it.
+    issueAction:
+      type: string
+      enum:
+        - reference
+        - fixes
+      default: reference
+      description: Whether to add a non-closing issue reference or a canonical Fixes #N closing reference.
     checkName:
       type: string
       description: Name of the validation evidence recorded with the change.
@@ -79,6 +86,23 @@ inputs:
 jobs:
   - name: prepare
     steps:
+      - name: prepare-body
+        description: Apply the explicit issue action before any commit or push
+        task:
+          type: model_method
+          modelType: "@jeremy/mere-delivery"
+          modelName: ${{ "mere-delivery-policy-" + run.id }}
+          methodName: preparePullRequestBody
+          inputs:
+            body: ${{ inputs.body }}
+            issue: ${{ inputs.issue }}
+            issueAction: ${{ inputs.issueAction }}
+        dataOutputOverrides:
+          - specName: bodyResult
+            lifetime: workflow
+        dependsOn: []
+        weight: 0
+        allowFailure: false
       - name: check-message
         description: The commit message, PR title and branch meet the standards
         task:
@@ -91,9 +115,13 @@ jobs:
             title: ${{ inputs.title }}
             branch: ${{ inputs.branch }}
             profile: ${{ inputs.profile }}
-            prBody: ${{ inputs.body }}
+            prBody: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
             issue: ${{ inputs.issue }}
-        dependsOn: []
+            issueAction: ${{ inputs.issueAction }}
+        dependsOn:
+          - step: prepare-body
+            condition:
+              type: succeeded
         weight: 0
         allowFailure: false
       - name: check-description
@@ -103,7 +131,7 @@ jobs:
           behavior: ${{ inputs.prBinding }}
           methodName: checkDescription
           inputs:
-            body: ${{ inputs.body }}
+            body: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
             style: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
         dependsOn:
           - step: check-message
@@ -207,7 +235,9 @@ jobs:
             expectedSubject: ${{ inputs.commitMessage.split("\n")[0] }}
             expectedAuthorEmail: ${{ inputs.expectedAuthorEmail }}
             profile: ${{ inputs.profile }}
-            prBody: ${{ inputs.body }}
+            prBody: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
+            issue: ${{ inputs.issue }}
+            issueAction: ${{ inputs.issueAction }}
         dependsOn:
           - step: read-commit
             condition:
@@ -296,7 +326,7 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
         dependsOn:
@@ -330,7 +360,7 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
             plan: >-
@@ -366,7 +396,7 @@ jobs:
                   detail: ${{ inputs.checkDetail }}
               submission:
                 title: ${{ inputs.title }}
-                body: ${{ inputs.body }}
+                body: ${{ data.latest("mere-delivery-policy-" + run.id, "prepared-body").attributes.body }}
                 draft: ${{ inputs.draft }}
                 descriptionStyle: ${{ data.query('modelName == "mere-delivery-policy-' + run.id + '" && specName == "commitCheck" && tags.workflowRunId == "' + run.id + '"')[0].attributes.descriptionStyle }}
             result: >-

@@ -118,6 +118,13 @@ inputs:
       minimum: 0
       default: 0
       description: Associated issue number, or 0 for none. When set, the pull request body must reference it.
+    issueAction:
+      type: string
+      enum:
+        - reference
+        - fixes
+      default: reference
+      description: Whether to add a non-closing issue reference or a canonical Fixes #N closing reference.
   required:
     - worktreePath
     - branch
@@ -313,5 +320,6 @@ jobs:
             prBinding: ${{ inputs.prModel }}
             draft: ${{ inputs.draft }}
             issue: ${{ inputs.issue }}
+            issueAction: ${{ inputs.issueAction }}
             checkName: recipe-validation
             checkDetail: The recipe validated, built, imported, installed, and passed its exact-argv smoke check.
