@@ -28,7 +28,7 @@ inputs:
     body:
       type: string
       default: ""
-      description: Exact commit body to copy to the pull request; empty is valid when the commit has no body.
+      description: Pull-request body authored independently from the commit body; Markdown is allowed and an empty body is valid when appropriate.
     profile:
       type: string
       enum:
@@ -195,7 +195,7 @@ jobs:
         weight: 0
         allowFailure: false
       - name: verify-commit
-        description: The real commit has the expected subject, no body or trailers, and the expected author
+        description: The real commit has the expected subject, allowed body, trailers, and author
         task:
           type: model_method
           modelType: "@jeremy/mere-delivery"

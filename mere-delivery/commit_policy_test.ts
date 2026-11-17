@@ -15,13 +15,11 @@ Deno.test("mere: a feature may explain why in a body", () => {
   );
 });
 
-Deno.test("mere: a release commit is a bare subject", () => {
+Deno.test("mere: a release commit may explain why in a body", () => {
   assertEquals(v("mere", "Release 0.24.0"), []);
   assertEquals(
-    v("mere", "Release 0.24.0\n\nSee the changelog.").join("|").includes(
-      "must not have a body",
-    ),
-    true,
+    v("mere", "Release 0.24.0\n\nThe release includes the activation repair."),
+    [],
   );
 });
 
@@ -101,22 +99,12 @@ Deno.test("title, branch and subject length are checked per profile", () => {
   assertEquals(v("mere", "Fix a leak", { branch: "fix-a-leak" }), []);
 });
 
-Deno.test("the pull request body must match the commit body", () => {
+Deno.test("the pull request body is independent and may use Markdown", () => {
   assertEquals(
-    v("mere", "Fix a leak", { prBody: "" }),
-    [],
-  );
-  assertEquals(
-    v("mere", "Fix a leak\n\nExplain the ownership fix.", {
-      prBody: "Explain the ownership fix.",
+    v("mere", "Fix a leak\n\nThe buffer ownership must be explicit.", {
+      prBody: "# Why\n\nThe caller needs a clear ownership boundary.",
     }),
     [],
-  );
-  assertEquals(
-    v("mere", "Fix a leak", { prBody: "Manufactured explanation." }).some((x) =>
-      x.includes("exactly match the commit body")
-    ),
-    true,
   );
 });
 Deno.test("an associated issue must be cited in the PR body", () => {

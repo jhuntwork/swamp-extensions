@@ -79,6 +79,11 @@ a disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
 supplies only `prModel` to the delivery workflow: a vault-backed `@jeremy/github-pr` instance bound to
 `jhuntwork/mere`.
 
+The delivery workflow takes `body` as an independently authored pull-request
+body. Use Markdown when it improves clarity. Explain why the change matters and
+avoid repeating what the commit subject and diff already make clear; the
+workflow preserves that prose rather than generating it.
+
 The pull request is the review gate. The delivery workflow does not merge,
 release, administer the repository, or edit a pull request. It is deliberately
 for a new branch from `main`; a follow-up to an already-open pull request

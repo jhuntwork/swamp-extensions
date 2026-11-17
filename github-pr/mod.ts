@@ -62,7 +62,7 @@ type Context = {
  */
 export const model = {
   type: "@jeremy/github-pr",
-  version: "2026.11.15.2",
+  version: "2026.11.15.3",
   globalArguments: Globals,
   upgrades: [{
     toVersion: "2026.08.21.1",
@@ -114,9 +114,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.15.2",
+    toVersion: "2026.11.15.3",
     description:
-      "Stop rendering maintainer context; preserve the exact commit body, including its formatting, in the pull request.",
+      "Leave pull-request rationale to the caller and impose no paragraph, Markdown, length, or empty-body rule at this boundary.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

@@ -76,7 +76,7 @@ Deno.test("packaged workflow commits only after the message check and never forc
 
 Deno.test("each profile records the PR description style it opts into", async () => {
   for (
-    const [profile, style] of [["mere", "paragraph"], ["merelinux", "markdown"]]
+    const [profile, style] of [["mere", "markdown"], ["merelinux", "markdown"]]
   ) {
     const { written, context } = recorder();
     await runCheck(

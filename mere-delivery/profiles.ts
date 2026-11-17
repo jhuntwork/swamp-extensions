@@ -12,10 +12,8 @@ export type ProfileName = typeof PROFILE_NAMES[number];
 export interface Profile extends CommitRules {
   description: string;
   /**
-   * How a pull request body may be formatted. "paragraph" is one short
-   * paragraph. "markdown" also allows blank lines and lists, so quoted
-   * upstream release notes stay readable. Headings and fences are refused
-   * either way.
+   * The formatting a pull request body may use. Markdown keeps rationale and
+   * trade-offs readable; the delivery boundary does not impose a prose shape.
    */
   descriptionStyle: "paragraph" | "markdown";
 }
@@ -23,12 +21,12 @@ export interface Profile extends CommitRules {
 export const PROFILES: Record<ProfileName, Profile> = {
   mere: {
     description:
-      "The Mere package manager. Features and fixes may explain why in a body; version releases are a bare subject.",
-    descriptionStyle: "paragraph",
+      "The Mere package manager. Commit bodies may use natural Markdown to explain why a change is needed without repeating what the subject and diff already show.",
+    descriptionStyle: "markdown",
     maxSubjectLength: 80,
     subjectPattern: "",
     allowBody: true,
-    noBodyPattern: "^Release [0-9]+\\.[0-9]+\\.[0-9]+$",
+    noBodyPattern: "",
     forbidTrailers: true,
     forbidStatusClaims: true,
     branchPattern: "^[a-z0-9][a-z0-9-]*$",
