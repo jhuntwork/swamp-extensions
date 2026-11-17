@@ -82,7 +82,9 @@ swamp behavior create @mgreten/cli-agent mere-adversarial-reviewer \
   --global-arg defaultProvider=claude \
   --global-arg defaultModel=opus \
   --global-arg defaultToolProfile=readonly \
-  --global-arg sandboxMode=auto
+  --global-arg sandboxMode=auto \
+  --global-arg sandboxRequired=true \
+  --global-arg sandboxNetwork=deny
 ```
 
 Use a provider and model available in the execution environment. The workflow
