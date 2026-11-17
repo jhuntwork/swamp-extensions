@@ -73,9 +73,9 @@ This package distributes an explicit two-phase delivery path:
    only `allowedPaths`, pushes a non-force branch, and creates and verifies a
    same-repository pull request.
 
-Before running `@jeremy/mere-change`, create the dedicated reviewer behavior
-with `@mgreten/cli-agent` and configure an installed, authenticated provider.
-The behavior must remain read-only:
+Before running `@jeremy/mere-change`, ensure the workspace has the dedicated
+reviewer behavior. If it does not exist, create it with `@mgreten/cli-agent`
+and configure an installed, authenticated provider:
 
 ```sh
 swamp behavior create @mgreten/cli-agent mere-adversarial-reviewer \
@@ -85,6 +85,13 @@ swamp behavior create @mgreten/cli-agent mere-adversarial-reviewer \
   --global-arg sandboxMode=auto \
   --global-arg sandboxRequired=true \
   --global-arg sandboxNetwork=deny
+```
+
+If the behavior already exists, edit it instead of creating a second instance.
+Use the same read-only tool profile and sandbox settings. For example:
+
+```sh
+swamp behavior edit mere-adversarial-reviewer
 ```
 
 Use a provider and model available in the execution environment. The workflow
