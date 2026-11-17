@@ -1,11 +1,12 @@
 manifestVersion: 1
 name: "@jeremy/mere-delivery"
-version: "2026.11.15.3"
+version: "2026.11.17.1"
 description: >-
   Commit and branch standards for Mere repositories, held as named profiles,
-  plus the one workflow that checks natural Markdown PR descriptions,
-  commits only the allowed paths, pushes without force, and opens and verifies
-  a pull request through @jeremy/github-pr.
+  plus the one workflow that checks natural Markdown PR descriptions and
+  applies explicit issue references or closing keywords, commits only the
+  allowed paths, pushes without force, and opens and verifies a pull request
+  through @jeremy/github-pr.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:

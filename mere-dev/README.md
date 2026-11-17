@@ -180,9 +180,11 @@ or vault values. Before running it, create:
 - an `@jeremy/github-pr` binding (default name `merelinux-pr`) scoped to
   `jhuntwork/merelinux` and the operator's vault credential.
 
-The installed workflow verifies that the development and smoke bindings actually
-reported the same root and Mere version. Alternative binding names can be passed
-through `devModel`, `shellModel`, and `prModel` workflow inputs.
+The `issue` input associates the pull request with an issue. The optional
+`issueAction` input defaults to `reference`, which adds or preserves a
+non-closing reference. Set it to `fixes` only when the pull request should
+contain `Fixes #N` and close that issue. An issue number alone never closes an
+issue.
 
 ## How it works
 

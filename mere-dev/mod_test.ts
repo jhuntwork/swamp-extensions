@@ -84,6 +84,7 @@ Deno.test("packaged MereLinux workflow preserves the recipe delivery boundaries"
       'workflowIdOrName: "@jeremy/mere-delivery/deliver-change"',
       "maintainerContext: ${{ inputs.maintainerContext }}",
       "descriptionPolicy: ${{ inputs.descriptionPolicy }}",
+      "issueAction: ${{ inputs.issueAction }}",
       "profile: merelinux",
       "repository: jhuntwork/merelinux",
     ]

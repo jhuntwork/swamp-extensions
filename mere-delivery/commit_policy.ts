@@ -1,3 +1,5 @@
+import { z } from "npm:zod@4.4.3";
+
 /** Rules one repository's commits and branches must follow. */
 export interface CommitRules {
   maxSubjectLength: number;
@@ -13,6 +15,9 @@ export interface CommitRules {
   branchPattern: string;
 }
 
+export const IssueActionSchema = z.enum(["reference", "fixes"]);
+export type IssueAction = z.infer<typeof IssueActionSchema>;
+
 export interface CommitUnderCheck {
   message: string;
   /** The pull request title; must equal the subject when given. */
@@ -21,6 +26,7 @@ export interface CommitUnderCheck {
   authorEmail?: string;
   /** An associated issue number; when given, the pull request body must cite it. */
   issue?: number;
+  issueAction?: IssueAction;
   prBody?: string;
 }
 
@@ -76,6 +82,38 @@ export function parseRawCommit(
     authorEmail: match[2],
     message: raw.slice(newline + 1).replace(/\n+$/, ""),
   };
+}
+
+export function preparePullRequestBody(
+  body: string,
+  issue: number,
+  issueAction: IssueAction,
+): string {
+  if (issue <= 0) {
+    if (issueAction === "fixes") {
+      throw new Error("issueAction 'fixes' requires a positive issue number");
+    }
+    return body;
+  }
+  const closing = new RegExp(
+    `\\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\\s+#${issue}\\b`,
+    "i",
+  );
+  if (issueAction === "fixes") {
+    if (closing.test(body)) {
+      return body.replace(closing, `Fixes #${issue}`);
+    }
+    const trimmed = body.replace(/\s+$/, "");
+    return trimmed ? `${trimmed}\n\nFixes #${issue}` : `Fixes #${issue}`;
+  }
+  if (closing.test(body)) {
+    throw new Error(
+      `issueAction 'reference' conflicts with a closing reference for #${issue}`,
+    );
+  }
+  if (new RegExp(`(?:^|[^\\w])#${issue}(?!\\d)`).test(body)) return body;
+  const trimmed = body.replace(/\s+$/, "");
+  return trimmed ? `${trimmed}\n\nRefs #${issue}` : `Refs #${issue}`;
 }
 
 /** Every way a commit breaks the rules; empty means it conforms. */
@@ -145,12 +183,35 @@ export function checkCommit(
       );
     }
   }
+  const issueAction = commit.issueAction ?? "reference";
+  if (issueAction === "fixes" && commit.issue === undefined) {
+    violations.push("issueAction 'fixes' requires an issue number");
+  }
   if (commit.issue !== undefined) {
-    const cited = new RegExp(`(?:^|[^\\w])#${commit.issue}(?!\\d)`);
-    if (commit.prBody === undefined || !cited.test(commit.prBody)) {
-      violations.push(
-        `the pull request body does not reference issue #${commit.issue}`,
+    const body = commit.prBody ?? "";
+    if (issueAction === "fixes") {
+      const closes = new RegExp(`\\bFixes\\s+#${commit.issue}\\b`, "i");
+      if (!closes.test(body)) {
+        violations.push(
+          `the pull request body must contain "Fixes #${commit.issue}" to close the issue`,
+        );
+      }
+    } else {
+      const closing = new RegExp(
+        `\\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\\s+#${commit.issue}\\b`,
+        "i",
       );
+      if (closing.test(body)) {
+        violations.push(
+          `the pull request body contains a closing reference for #${commit.issue}; use issueAction 'fixes' to close it`,
+        );
+      }
+      const cited = new RegExp(`(?:^|[^\\w])#${commit.issue}(?!\\d)`);
+      if (!cited.test(body)) {
+        violations.push(
+          `the pull request body does not reference issue #${commit.issue}`,
+        );
+      }
     }
   }
   if (expect.subject !== undefined && expect.subject !== subject) {

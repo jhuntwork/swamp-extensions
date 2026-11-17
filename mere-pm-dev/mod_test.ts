@@ -82,6 +82,7 @@ Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery",
   assertEquals(text.includes("maintainerContext:"), false);
   assertEquals(text.includes("descriptionPolicy:"), false);
   assertEquals(text.includes("body: ${{ inputs.body }}"), true);
+  assertEquals(text.includes("issueAction: ${{ inputs.issueAction }}"), true);
   assertEquals(text.includes("profile: mere\n"), true);
   assertEquals(text.includes("repository: jhuntwork/mere\n"), true);
   assertEquals(text.includes("methodName: commit"), false);

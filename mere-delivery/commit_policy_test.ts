@@ -1,5 +1,10 @@
-import { assertEquals } from "jsr:@std/assert@1.0.19";
-import { checkCommit, parseRawCommit } from "./commit_policy.ts";
+import { assertEquals, assertThrows } from "jsr:@std/assert@1.0.19";
+import {
+  checkCommit,
+  IssueActionSchema,
+  parseRawCommit,
+  preparePullRequestBody,
+} from "./commit_policy.ts";
 import { PROFILES } from "./profiles.ts";
 
 const v = (profile: keyof typeof PROFILES, message: string, extra = {}) =>
@@ -107,11 +112,86 @@ Deno.test("the pull request body is independent and may use Markdown", () => {
     [],
   );
 });
+Deno.test("issue actions prepare idempotent reference and closing footers", () => {
+  assertEquals(
+    preparePullRequestBody("Why this matters.", 42, "reference"),
+    "Why this matters.\n\nRefs #42",
+  );
+  assertEquals(
+    preparePullRequestBody("Why this matters.\n\nRefs #42", 42, "reference"),
+    "Why this matters.\n\nRefs #42",
+  );
+  assertEquals(
+    preparePullRequestBody("See #42", 42, "reference"),
+    "See #42",
+  );
+  assertEquals(
+    preparePullRequestBody("Why this matters.", 42, "fixes"),
+    "Why this matters.\n\nFixes #42",
+  );
+  assertEquals(
+    preparePullRequestBody("Why this matters.\n\nCloses #42", 42, "fixes"),
+    "Why this matters.\n\nFixes #42",
+  );
+});
+
+Deno.test("fixes requires the canonical closing phrase", () => {
+  assertEquals(
+    checkCommit(
+      {
+        message: "Fix a leak",
+        issue: 42,
+        issueAction: "fixes",
+        prBody: "Refs #42",
+      },
+      PROFILES.mere,
+    ).some((x) => x.includes('must contain "Fixes #42"')),
+    true,
+  );
+  assertEquals(
+    checkCommit(
+      {
+        message: "Fix a leak",
+        issue: 42,
+        issueAction: "fixes",
+        prBody: "Fixes #42",
+      },
+      PROFILES.mere,
+    ),
+    [],
+  );
+  assertEquals(IssueActionSchema.safeParse("fixes").success, true);
+});
+
+Deno.test("reference action refuses an existing closing phrase", () => {
+  assertThrows(
+    () => preparePullRequestBody("Fixes #42", 42, "reference"),
+    Error,
+    "conflicts",
+  );
+});
+
+Deno.test("reference action rejects a closing reference during commit checks", () => {
+  assertEquals(
+    checkCommit(
+      {
+        message: "Fix a leak",
+        issue: 42,
+        issueAction: "reference",
+        prBody: "Fixes #42",
+      },
+      PROFILES.mere,
+    ).some((x) => x.includes("use issueAction 'fixes'")),
+    true,
+  );
+});
+
 Deno.test("an associated issue must be cited in the PR body", () => {
   const check = (prBody: string | undefined) =>
     v("mere", `Fix a leak\n\n${prBody ?? ""}`, { issue: 42, prBody });
-  assertEquals(check("Fixes #42"), []);
-  assertEquals(check("Closes #42."), []);
+  assertEquals(check("Refs #42"), []);
+  assertEquals(check("Fixes #42").length, 1);
+  assertEquals(check("Closes #42.").length, 1);
   assertEquals(check("Fixes #420").length, 1);
   assertEquals(check("No reference").length, 1);
   assertEquals(check(undefined).length, 1);

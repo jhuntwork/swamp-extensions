@@ -86,10 +86,15 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input repository=jhuntwork/mere \
   --input prBinding=mere-pr \
   --input issue=42 \
+  --input issueAction=fixes \
   --input checkName=repository-validation \
   --input 'checkDetail=Format check, tests, and build covered the change.'
 ```
 
+When `issue` is set, `issueAction: reference` adds or preserves a non-closing
+issue reference, such as `Refs #N`. `issueAction: fixes` adds or normalizes the
+canonical `Fixes #N` closing keyword. The default is `reference`; an issue
+number alone never closes an issue.
+
 The workflow never merges. It carries no credentials; the caller supplies a
-vault-backed `@jeremy/github-pr` binding as `prBinding`. When `issue` is set,
-the pull request body must reference it.
+vault-backed `@jeremy/github-pr` binding as `prBinding`.
