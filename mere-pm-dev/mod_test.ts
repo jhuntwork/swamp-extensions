@@ -65,6 +65,7 @@ Deno.test("packaged delivery workflow checks formatting before the test run", as
     "methodName: test",
     "methodName: releaseBuild",
     "methodName: smoke",
+    'workflowIdOrName: "@atalanta/external-reviewer/external-review-findings"',
   ]
     .map((needle) => text.indexOf(needle));
   assertEquals(order.every((index) => index >= 0), true);
@@ -87,6 +88,15 @@ Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery",
   assertEquals(text.includes("repository: jhuntwork/mere\n"), true);
   assertEquals(text.includes("methodName: commit"), false);
   assertEquals(text.includes("methodName: push"), false);
+  assertEquals(text.includes("changeKind"), true);
+  assertEquals(text.includes('inputs.changeKind != "version-release"'), true);
+  assertEquals(text.includes("reviewerModel: mere-adversarial-reviewer"), true);
+  assertEquals(
+    text.includes(
+      'workflowIdOrName: "@atalanta/external-reviewer/external-review-findings"',
+    ),
+    true,
+  );
 });
 
 function fakeContext(
