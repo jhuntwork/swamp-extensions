@@ -109,9 +109,9 @@ Neither workflow carries credentials or local validation model instances.
 `@jeremy/mere-change` does require the workspace's dedicated
 `mere-adversarial-reviewer` behavior, which must be configured as a read-only
 `@mgreten/cli-agent` instance before delivery. Each workflow creates a
-  disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
-  supplies only `prModel` to the delivery workflow: a vault-backed
-  `@jeremy/github-pr` model bound to `jhuntwork/mere`.
+disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
+supplies only `prModel` to the delivery workflow: a vault-backed
+`@jeremy/github-pr` model bound to `jhuntwork/mere`.
 
 The delivery workflow derives the pull-request body from the commit message and
 requires an exact match, including an empty body. Put any review rationale in
