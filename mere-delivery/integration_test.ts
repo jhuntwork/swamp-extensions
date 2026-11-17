@@ -230,22 +230,23 @@ type Step = { name: string; status: string; error?: string };
 const stepsOf = (run: { jobs: { steps: Step[] }[] }) =>
   run.jobs.flatMap((j) => j.steps);
 
-Deno.test("the delivery preserves arbitrary commit body formatting", async () => {
+Deno.test("the delivery accepts an independently authored Markdown PR body", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
-    const headingMessage = "Add a package\n\n# Heading\n\ntext";
+    const commitMessage =
+      "Add a package\n\nThe package adds the runtime dependency.";
     const { remote, work, base, sh } = await fixture(
       dir,
-      headingMessage,
+      commitMessage,
       false,
     );
     const run = await deliver(
       dir,
       work,
       base,
-      "# Heading\n\ntext",
-      headingMessage,
+      "# Why\n\nUsers need the runtime dependency for this package.",
+      commitMessage,
     );
     assertEquals(run.status, "failed");
     const steps = stepsOf(run);
@@ -267,7 +268,7 @@ Deno.test("operator prose is preserved before commit or push", async () => {
   try {
     await repoWithExtensions(dir);
     const operatorMessage =
-      "x: upgrade to 2\n\nNo host installation or kernel changes.";
+      "Add a package\n\nNo host installation or kernel changes.";
     const { remote, work, base, sh } = await fixture(
       dir,
       operatorMessage,

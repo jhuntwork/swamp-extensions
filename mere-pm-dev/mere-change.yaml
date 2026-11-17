@@ -50,30 +50,11 @@ inputs:
       minLength: 1
       maxLength: 256
       description: Pull-request title.
-    descriptionPolicy:
-      type: string
-      enum:
-        - none
-        - optional
-        - maintainer
-      default: maintainer
-      description: Use none for Mere releases, optional for self-describing changes, or maintainer when the diff needs explanation.
-    maintainerContext:
-      type: object
-      properties:
-        kind: {type: string, const: change}
-        problem: {type: string, minLength: 1}
-        rationale: {type: string, minLength: 1}
-        consequences: {type: string}
-        verification: {type: string}
-      required: [kind, problem, rationale]
-      additionalProperties: false
-      description: Optional reviewer context for changes that need explanation.
     body:
       type: string
       default: ""
       maxLength: 65535
-      description: Pull-request body.
+      description: Pull-request body authored independently in Markdown; explain why the change matters without repeating the subject or diff.
     prModel:
       type: string
       minLength: 1
@@ -244,9 +225,7 @@ jobs:
             allowedPaths: ${{ inputs.allowedPaths }}
             commitMessage: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
-            descriptionPolicy: ${{ inputs.descriptionPolicy }}
             body: ${{ inputs.body }}
-            maintainerContext: ${{ inputs.maintainerContext }}
             profile: mere
             repository: jhuntwork/mere
             prBinding: ${{ inputs.prModel }}

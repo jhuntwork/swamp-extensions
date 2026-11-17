@@ -104,7 +104,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.15.2",
+  version: "2026.11.15.3",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -123,9 +123,9 @@ export const model = {
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
   }, {
-    toVersion: "2026.11.15.2",
+    toVersion: "2026.11.15.3",
     description:
-      "Stop rendering maintainer context; preserve the exact commit body, including its formatting, in the pull request.",
+      "Allow Mere commit bodies and pull-request descriptions to use natural Markdown and author the pull-request description independently from the commit body.",
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,

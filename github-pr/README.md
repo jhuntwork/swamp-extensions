@@ -37,14 +37,13 @@ draft.
 
 ## PR description contract
 
-The pull request body is supplied by the delivery workflow and must match the
-commit body exactly. An empty commit body produces an empty pull request body.
-The adapter does not impose a paragraph, heading, list, code-fence, length, or
-status-text format on that body. Execution evidence belongs in checks and
-reports, not in text manufactured by delivery.
+The pull request body is supplied independently from the commit body. It may use
+Markdown and should explain why the change matters without repeating details
+already clear from the commit subject or diff. The adapter does not impose a
+paragraph, heading, list, code-fence, length, or empty-body rule on that prose.
 
-`checkDescription` records the body without rewriting it. The delivery policy
-is responsible for comparing it with the commit body.
+`checkDescription` records the body without rewriting it. Delivery owns the
+review guidance; this adapter only preserves and transports the supplied body.
 
 
 Use this model at the end of a repository-owned workflow:

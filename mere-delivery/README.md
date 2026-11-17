@@ -12,21 +12,21 @@ delivery that names the profile follows the new rule.
 | Rule | `mere` (package manager) | `merelinux` (recipes) |
 | --- | --- | --- |
 | Subject length | 80 | 69 |
-| PR description | Exact commit body, including an empty body | Exact commit body, including an empty body |
-| Bare subject required | `Release X.Y.Z` | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
+| PR description | Independently authored Markdown; explain why without repeating what the subject and diff already show | Independently authored Markdown; explain why without repeating what the subject and diff already show |
+| Bare subject required | None | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
 | Branch name | lowercase words joined by `-` | lowercase, digits, `.`, `_`, `-` |
 
 Both profiles also require the pull request title to equal the commit subject.
 
-The delivery workflow passes the supplied body through unchanged. It does not
-render maintainer context or impose paragraph, heading, list, code-fence, length,
-status-text, or empty-body rules. The caller must supply the exact commit body.
+Commit and pull-request bodies may use Markdown, blank lines, lists, and headings.
+Write natural rationale that explains why the change matters without restating
+what the subject and diff already make clear. The delivery workflow does not
+try to judge that distinction mechanically; it preserves the caller's prose.
 
 Status claims are checked in commit messages because the pipeline reports
-execution evidence better than a commit body. The pull request body itself is
-never supplemented with rationale, verification, consequences, or other text.
+execution evidence better than a commit body. Trailers remain refused.
 
 The values come from each repository's own history. Run against the last 286
 non-merge commits of `mere` and 400 of `merelinux`, the profiles flag one `mere`
@@ -50,19 +50,21 @@ pull request body cites the issue.
 
 ## Deliver a change
 
-The pull request body must be the exact commit body. An empty commit body
-produces an empty pull request body; the workflow does not manufacture a
-rationale, verification summary, consequences section, or other text.
+The pull request body is authored independently from the commit body. It may
+explain why the change matters in Markdown, but it should not repeat details
+already clear from the commit subject or diff. The workflow does not manufacture
+rationale or impose a paragraph, heading, list, code-fence, length, or empty-body
+rule.
 
 `@jeremy/mere-delivery/deliver-change` takes a worktree that already holds the
 implementation and a baseSha it was cut from:
 
 1. check the message, title and branch against the profile;
-2. check that the supplied pull request body exactly matches the commit body;
+2. check the supplied pull-request body against the description policy;
 3. commit only `allowedPaths`, unless they have no uncommitted changes, which is
    the case when an earlier run already made the commit;
 4. read the commit at the branch tip back and check it again, including the
-   author and exact pull request body;
+   author and body rules;
 5. check the branch's diff is non-empty and only touches `allowedPaths`;
 6. push without force;
 7. plan, create and read back the pull request with `@jeremy/github-pr`.
@@ -79,7 +81,7 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input 'allowedPaths:json=["src/repo_sources.zig"]' \
   --input 'commitMessage=Fix a leak in the repo cache' \
   --input 'title=Fix a leak in the repo cache' \
-  --input 'body=The exact body from the commit, or an empty value for a bare subject.' \
+  --input 'body=The caller needs a clear ownership boundary and why this change matters.' \
   --input profile=mere \
   --input repository=jhuntwork/mere \
   --input prBinding=mere-pr \
