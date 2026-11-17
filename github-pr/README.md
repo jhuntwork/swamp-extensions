@@ -37,13 +37,11 @@ draft.
 
 ## PR description contract
 
-The pull request body is supplied independently from the commit body. It may use
-Markdown and should explain why the change matters without repeating details
-already clear from the commit subject or diff. The adapter does not impose a
-paragraph, heading, list, code-fence, length, or empty-body rule on that prose.
-
-`checkDescription` records the body without rewriting it. Delivery owns the
-review guidance; this adapter only preserves and transports the supplied body.
+The delivery workflow derives the pull request body from the commit body and
+requires an exact match, including an empty body and Markdown formatting. This
+adapter preserves and transports that already-validated body without rewriting
+it. Rationale belongs in the commit body so the review description is populated
+automatically.
 
 
 Use this model at the end of a repository-owned workflow:

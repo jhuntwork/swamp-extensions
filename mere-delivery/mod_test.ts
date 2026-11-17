@@ -35,11 +35,12 @@ Deno.test("a conforming message is recorded as ok", async () => {
   assertEquals(written[0].data.ok, true);
 });
 
-Deno.test("preparePullRequestBody writes a canonical closing footer", async () => {
+Deno.test("preparePullRequestBody derives the exact commit body", async () => {
   const { written, context } = recorder();
   await model.methods.preparePullRequestBody.execute(
     model.methods.preparePullRequestBody.arguments.parse({
-      body: "The change matters.",
+      body: "",
+      commitMessage: "Fix a leak\n\nThe change matters.\n\nFixes #42",
       issue: 42,
       issueAction: "fixes",
     }),
@@ -53,7 +54,7 @@ Deno.test("preparePullRequestBody writes a canonical closing footer", async () =
 });
 
 Deno.test("model records the current issue-action contract", () => {
-  assertEquals(model.version, "2026.11.17.1");
+  assertEquals(model.version, "2026.11.17.2");
   assertEquals("preparePullRequestBody" in model.methods, true);
 });
 

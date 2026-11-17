@@ -106,6 +106,7 @@ inputs:
       type: string
       maxLength: 65535
       default: ""
+      description: Optional compatibility input; when provided it must equal the commit body. The delivery workflow derives the pull-request body from commitMessage.
     prModel:
       type: string
       minLength: 1
@@ -312,9 +313,6 @@ jobs:
             allowedPaths: ${{ inputs.allowedPaths }}
             commitMessage: ${{ inputs.commitMessage }}
             title: ${{ inputs.title }}
-            descriptionPolicy: ${{ inputs.descriptionPolicy }}
-            body: ${{ inputs.body }}
-            maintainerContext: ${{ inputs.maintainerContext }}
             profile: merelinux
             repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prModel }}

@@ -34,7 +34,12 @@ const CheckCommitArgs = z.object({
 });
 
 const PullRequestBodyArgs = z.object({
-  body: z.string().default(""),
+  body: z.string().default("").describe(
+    "Optional compatibility input; when commitMessage is supplied it must match the derived commit body.",
+  ),
+  commitMessage: z.string().min(1).describe(
+    "The commit message whose body becomes the pull request body.",
+  ),
   issue: z.number().int().min(0).default(0),
   issueAction: IssueActionSchema.default("reference"),
 });
@@ -129,7 +134,7 @@ export async function runCheck(
 /** Commit and branch standards enforced as data, one profile per repository. */
 export const model = {
   type: "@jeremy/mere-delivery",
-  version: "2026.11.17.1",
+  version: "2026.11.17.2",
   description:
     "Commit and branch standards for Mere repositories, enforced as data: profiles hold the rules, the check is deterministic.",
   globalArguments: z.object({}),
@@ -154,6 +159,13 @@ export const model = {
     upgradeAttributes: (
       old: Record<string, unknown>,
     ): Record<string, unknown> => old,
+  }, {
+    toVersion: "2026.11.17.2",
+    description:
+      "Require the pull-request body to equal the commit body and derive it automatically from the commit message while preserving explicit issue actions.",
+    upgradeAttributes: (
+      old: Record<string, unknown>,
+    ): Record<string, unknown> => old,
   }],
   resources: {
     pullRequestBody: {
@@ -173,7 +185,7 @@ export const model = {
   methods: {
     preparePullRequestBody: {
       description:
-        "Apply the explicit issue action to a pull-request body without inferring closure from the issue number",
+        "Derive the pull-request body from the commit message and require exact equality while applying the explicit issue action",
       arguments: PullRequestBodyArgs,
       execute: async (
         args: z.infer<typeof PullRequestBodyArgs>,
@@ -183,6 +195,7 @@ export const model = {
           args.body,
           args.issue,
           args.issueAction,
+          args.commitMessage,
         );
         return {
           dataHandles: [
@@ -198,7 +211,7 @@ export const model = {
     },
     checkCommit: {
       description:
-        "Check a commit message (before committing) or an existing commit (after) against a repository profile: subject length and pattern, body rules, trailers, status claims, PR title equal to subject, branch name, author, and a referenced issue. Records every violation, then throws if there are any.",
+        "Check a commit message (before committing) or an existing commit (after) against a repository profile: subject length and pattern, body rules, exact PR-body equality, trailers, status claims, PR title equal to subject, branch name, author, and explicit issue action.",
       kind: "read",
       arguments: CheckCommitArgs,
       execute: runCheck,

@@ -1,12 +1,12 @@
 manifestVersion: 1
 name: "@jeremy/mere-pm-dev"
-version: "2026.11.17.1"
+version: "2026.11.17.2"
 description: >
   Build and validate the Mere package-manager source tree through fixed Zig
   commands run inside a @jeremy/mere-shell namespace, so no host Zig is needed,
-  and package its fresh-branch delivery workflows with independently authored
-  Markdown pull-request descriptions and explicit issue-closing actions. Does
-  not build recipes, publish artifacts, or provide credentials.
+  and package its fresh-branch delivery workflows with commit bodies that are
+  copied exactly into pull-request descriptions and explicit issue-closing
+  actions. Does not build recipes, publish artifacts, or provide credentials.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:

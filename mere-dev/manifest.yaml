@@ -1,11 +1,12 @@
 manifestVersion: 1
 name: "@jeremy/mere-dev"
-version: "2026.11.17.1"
+version: "2026.11.17.2"
 description: >
   Everything for MereLinux recipes: scan the tree and look up upstream
   versions, bump or rebuild a recipe, and validate, build, and import it with
-  mere, then deliver the change. Invokes mere directly without a shell wrapper;
-  installed-package smoke tests run in @jeremy/mere-shell.
+  mere, then deliver the change. Pull-request bodies are derived from commit
+  messages and must match them exactly. Invokes mere directly without a shell
+  wrapper; installed-package smoke tests run in @jeremy/mere-shell.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:

@@ -1,12 +1,12 @@
 manifestVersion: 1
 name: "@jeremy/github-pr"
-version: "2026.11.15.3"
+version: "2026.11.15.4"
 description: >
   Narrow GitHub.com same-repository pull-request boundary: preflight, plan,
-  apply, and read-back verification. It leaves rationale and Markdown formatting
-  to the caller and computes change integrity and readiness internally. No
-  merge, release, repository administration, PR update, or arbitrary endpoint
-  capability.
+  apply, and read-back verification. Delivery supplies a body that exactly
+  matches the commit body; this adapter preserves it and computes change
+  integrity and readiness internally. No merge, release, repository
+  administration, PR update, or arbitrary endpoint capability.
 repository: "https://github.com/jhuntwork/swamp-extensions"
 license: MIT
 paths:

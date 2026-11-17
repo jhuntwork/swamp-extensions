@@ -54,7 +54,7 @@ inputs:
       type: string
       default: ""
       maxLength: 65535
-      description: Pull-request body authored independently in Markdown; explain why the change matters without repeating the subject or diff.
+      description: Optional compatibility input; when provided it must equal the commit body. The delivery workflow derives the pull-request body from commitMessage.
     prModel:
       type: string
       minLength: 1

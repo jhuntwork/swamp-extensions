@@ -33,12 +33,12 @@ export const PROFILES: Record<ProfileName, Profile> = {
   },
   merelinux: {
     description:
-      "MereLinux recipes. A bump or upgrade is a bare subject; a new package may add a line or two saying what it is.",
+      "MereLinux recipes. Bumps and upgrades may carry the upstream rationale in the commit body, which becomes the pull-request body.",
     descriptionStyle: "markdown",
     maxSubjectLength: 69,
     subjectPattern: "",
     allowBody: true,
-    noBodyPattern: "^(?:[a-z0-9._+/-]+: )?(?:[Bb]ump|[Uu]pgrade)\\b",
+    noBodyPattern: "",
     forbidTrailers: true,
     forbidStatusClaims: true,
     branchPattern: "^[a-z0-9][a-z0-9._-]*$",
