@@ -28,7 +28,7 @@ inputs:
     body:
       type: string
       default: ""
-      description: Pull-request body authored independently from the commit body; Markdown is allowed and an empty body is valid when appropriate.
+      description: Optional compatibility input; when provided it must equal the commit body. The workflow derives the pull-request body from commitMessage.
     profile:
       type: string
       enum:
@@ -77,7 +77,6 @@ inputs:
     - allowedPaths
     - commitMessage
     - title
-    - body
     - profile
     - repository
     - prBinding
@@ -87,7 +86,7 @@ jobs:
   - name: prepare
     steps:
       - name: prepare-body
-        description: Apply the explicit issue action before any commit or push
+        description: Derive the pull-request body from the commit message and apply the explicit issue action before validation or push
         task:
           type: model_method
           modelType: "@jeremy/mere-delivery"
@@ -95,6 +94,7 @@ jobs:
           methodName: preparePullRequestBody
           inputs:
             body: ${{ inputs.body }}
+            commitMessage: ${{ inputs.commitMessage }}
             issue: ${{ inputs.issue }}
             issueAction: ${{ inputs.issueAction }}
         dataOutputOverrides:

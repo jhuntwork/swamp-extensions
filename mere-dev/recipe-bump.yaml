@@ -353,7 +353,6 @@ jobs:
             allowedPaths: ${{ [data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.path] }}
             commitMessage: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.commitMessage }}
             title: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.title }}
-            maintainerContext: ${{ data.latest(inputs.recipeBinding, "summary-" + inputs.recipe.split("/")[1]).attributes.maintainerContext }}
             profile: merelinux
             repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prBinding }}

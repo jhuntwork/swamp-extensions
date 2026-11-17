@@ -186,10 +186,6 @@ jobs:
               ${{ inputs.recipe.split("/")[1] + ": rebuild release " + string(data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.release.after) }}
             title: >-
               ${{ inputs.recipe.split("/")[1] + ": rebuild release " + string(data.latest(inputs.recipeBinding, "change-" + inputs.recipe.split("/")[1]).attributes.release.after) }}
-            maintainerContext:
-              kind: change
-              problem: ${{ inputs.reason }}
-              rationale: Increment the recipe release and rebuild the package without changing its upstream version.
             profile: merelinux
             repository: jhuntwork/merelinux
             prBinding: ${{ inputs.prBinding }}

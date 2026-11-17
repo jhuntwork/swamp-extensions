@@ -68,7 +68,7 @@ Deno.test("deliver-change refuses a message that breaks the profile before it co
     assertEquals(created.code, 0, created.stderr);
 
     const cases: Array<[string, string, string]> = [
-      ["merelinux", "Upgrade jq to 1.8.2\n\nExplains why.", "bump-jq"],
+      ["merelinux", "Upgrade jq to 1.8.2\n\nAll tests pass.", "bump-jq"],
       [
         "mere",
         "Fix a leak\n\nThe buffer was not freed. All tests pass.",
@@ -166,6 +166,8 @@ async function deliver(
   base: string,
   body: string,
   message: string,
+  issue = 0,
+  issueAction = "reference",
 ) {
   return await json(dir, [
     "workflow",
@@ -195,6 +197,10 @@ async function deliver(
     "checkName=validation",
     "--input",
     "checkDetail=Covered.",
+    "--input",
+    `issue=${issue}`,
+    "--input",
+    `issueAction=${issueAction}`,
   ]);
 }
 
@@ -230,7 +236,7 @@ type Step = { name: string; status: string; error?: string };
 const stepsOf = (run: { jobs: { steps: Step[] }[] }) =>
   run.jobs.flatMap((j) => j.steps);
 
-Deno.test("the delivery accepts an independently authored Markdown PR body", async () => {
+Deno.test("the delivery rejects an independently authored Markdown PR body", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
@@ -251,19 +257,17 @@ Deno.test("the delivery accepts an independently authored Markdown PR body", asy
     assertEquals(run.status, "failed");
     const steps = stepsOf(run);
     const find = (n: string) => steps.find((s) => s.name === n);
-    assertEquals(find("check-description")?.status, "succeeded");
-    assertEquals(find("commit")?.status, "succeeded");
-    assertEquals(find("verify-commit")?.status, "succeeded");
-    assertEquals(find("push")?.status, "succeeded");
-    const head = await sh(work, "rev-parse", "HEAD");
-    assertEquals(head === base, false);
-    assertEquals(await sh(remote, "rev-parse", "bump-x-2"), head);
+    assertEquals(find("prepare-body")?.status, "failed");
+    assertEquals(find("commit")?.status, "skipped");
+    assertEquals(find("push")?.status, "skipped");
+    assertEquals(await sh(work, "rev-parse", "HEAD"), base);
+    assertEquals(await sh(remote, "branch", "--list", "bump-x-2"), "");
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test("operator prose is preserved before commit or push", async () => {
+Deno.test("the delivery preserves a PR body that matches the commit body", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {
     await repoWithExtensions(dir);
@@ -293,6 +297,36 @@ Deno.test("operator prose is preserved before commit or push", async () => {
   }
 });
 
+Deno.test("a fixes issue action uses the closing reference from the commit body", async () => {
+  const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
+  try {
+    await repoWithExtensions(dir);
+    const commitMessage = "Add a package\n\nFixes #42";
+    const { remote, work, base, sh } = await fixture(
+      dir,
+      commitMessage,
+      false,
+    );
+    const run = await deliver(
+      dir,
+      work,
+      base,
+      "Fixes #42",
+      commitMessage,
+      42,
+      "fixes",
+    );
+    const find = (n: string) => stepsOf(run).find((s) => s.name === n);
+    assertEquals(run.status, "failed");
+    assertEquals(find("prepare-body")?.status, "succeeded");
+    assertEquals(find("check-message")?.status, "succeeded");
+    assertEquals(find("verify-commit")?.status, "succeeded");
+    assertEquals(find("push")?.status, "succeeded");
+    assertEquals(await sh(remote, "rev-parse", "bump-x-2") !== base, true);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
 Deno.test("a branch that already has its commit is not committed twice, and a diff outside the allowed paths is never pushed", async () => {
   const dir = await Deno.makeTempDir({ prefix: "mere-delivery-it-" });
   try {

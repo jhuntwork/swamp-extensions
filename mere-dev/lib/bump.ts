@@ -73,9 +73,10 @@ export function renderSummary(input: SummaryInput): Summary {
   const body = notes
     ? releaseUrl ? `${notes}\n\nRelease notes: ${releaseUrl}` : notes
     : upstream;
+  const commitMessage = body ? `${title}\n\n${body}` : title;
   return {
     title,
-    commitMessage: title,
+    commitMessage,
     body,
     maintainerContext: { kind: "upstream", summary: body },
     labels,

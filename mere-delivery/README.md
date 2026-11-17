@@ -12,18 +12,18 @@ delivery that names the profile follows the new rule.
 | Rule | `mere` (package manager) | `merelinux` (recipes) |
 | --- | --- | --- |
 | Subject length | 80 | 69 |
-| PR description | Independently authored Markdown; explain why without repeating what the subject and diff already show | Independently authored Markdown; explain why without repeating what the subject and diff already show |
-| Bare subject required | None | `Bump ...` and `Upgrade ...` (with an optional `name: ` prefix) |
+| PR description | Exact commit body, including an empty body | Exact commit body, including an empty body |
+| Bare subject required | None | None |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
 | Branch name | lowercase words joined by `-` | lowercase, digits, `.`, `_`, `-` |
 
 Both profiles also require the pull request title to equal the commit subject.
 
-Commit and pull-request bodies may use Markdown, blank lines, lists, and headings.
-Write natural rationale that explains why the change matters without restating
-what the subject and diff already make clear. The delivery workflow does not
-try to judge that distinction mechanically; it preserves the caller's prose.
+The delivery workflow derives the pull-request body from the commit message. The
+body must match exactly, including an empty body and Markdown formatting. Put
+rationale in the commit body when the change needs it; the pull request receives
+that same body automatically.
 
 Status claims are checked in commit messages because the pipeline reports
 execution evidence better than a commit body. Trailers remain refused.
@@ -50,17 +50,15 @@ pull request body cites the issue.
 
 ## Deliver a change
 
-The pull request body is authored independently from the commit body. It may
-explain why the change matters in Markdown, but it should not repeat details
-already clear from the commit subject or diff. The workflow does not manufacture
-rationale or impose a paragraph, heading, list, code-fence, length, or empty-body
-rule.
+The pull request body is derived from the commit body and must match it exactly,
+including an empty body. The workflow does not manufacture rationale or rewrite
+Markdown. Write any explanation needed for review in the commit body.
 
 `@jeremy/mere-delivery/deliver-change` takes a worktree that already holds the
 implementation and a baseSha it was cut from:
 
 1. check the message, title and branch against the profile;
-2. check the supplied pull-request body against the description policy;
+2. derive the pull-request body from the commit message and check exact equality;
 3. commit only `allowedPaths`, unless they have no uncommitted changes, which is
    the case when an earlier run already made the commit;
 4. read the commit at the branch tip back and check it again, including the
@@ -81,7 +79,7 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input 'allowedPaths:json=["src/repo_sources.zig"]' \
   --input 'commitMessage=Fix a leak in the repo cache' \
   --input 'title=Fix a leak in the repo cache' \
-  --input 'body=The caller needs a clear ownership boundary and why this change matters.' \
+  --input 'body=' \
   --input profile=mere \
   --input repository=jhuntwork/mere \
   --input prBinding=mere-pr \
@@ -91,10 +89,11 @@ swamp workflow run @jeremy/mere-delivery/deliver-change \
   --input 'checkDetail=Format check, tests, and build covered the change.'
 ```
 
-When `issue` is set, `issueAction: reference` adds or preserves a non-closing
-issue reference, such as `Refs #N`. `issueAction: fixes` adds or normalizes the
-canonical `Fixes #N` closing keyword. The default is `reference`; an issue
-number alone never closes an issue.
+When `issue` is set, include the issue reference in the commit body. With
+`issueAction: reference`, the body must cite the issue without a closing keyword.
+With `issueAction: fixes`, the body must contain the canonical `Fixes #N`
+reference. The default is `reference`; an issue number alone never closes an
+issue.
 
 The workflow never merges. It carries no credentials; the caller supplies a
 vault-backed `@jeremy/github-pr` binding as `prBinding`.

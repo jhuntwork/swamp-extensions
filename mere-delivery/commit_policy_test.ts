@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1.0.19";
 import {
   checkCommit,
+  commitBody,
   IssueActionSchema,
   parseRawCommit,
   preparePullRequestBody,
@@ -69,20 +70,16 @@ Deno.test("mere: trailers are refused", () => {
   );
 });
 
-Deno.test("merelinux: a bump is a bare subject; a new package may add a line", () => {
+Deno.test("merelinux: a bump or upgrade may carry rationale in the body", () => {
   assertEquals(v("merelinux", "core/skalibs: Bump release to 2"), []);
   assertEquals(v("merelinux", "jq: upgrade to 1.8.2"), []);
   assertEquals(
-    v("merelinux", "jq: upgrade to 1.8.2\n\nBecause.").some((x) =>
-      x.includes("must not have a body")
-    ),
-    true,
+    v("merelinux", "jq: upgrade to 1.8.2\n\nBecause."),
+    [],
   );
   assertEquals(
-    v("merelinux", "jq: Upgrade to 1.8.2\n\nBecause.").some((x) =>
-      x.includes("must not have a body")
-    ),
-    true,
+    v("merelinux", "jq: Upgrade to 1.8.2\n\nBecause."),
+    [],
   );
   assertEquals(
     v("merelinux", "Add nasm at 3.01\n\nx86 assembler. Required by limine."),
@@ -104,68 +101,62 @@ Deno.test("title, branch and subject length are checked per profile", () => {
   assertEquals(v("mere", "Fix a leak", { branch: "fix-a-leak" }), []);
 });
 
-Deno.test("the pull request body is independent and may use Markdown", () => {
+Deno.test("the pull request body must match the commit body", () => {
   assertEquals(
     v("mere", "Fix a leak\n\nThe buffer ownership must be explicit.", {
-      prBody: "# Why\n\nThe caller needs a clear ownership boundary.",
+      prBody: "The buffer ownership must be explicit.",
     }),
     [],
   );
+  assertEquals(
+    v("mere", "Fix a leak\n\nThe buffer ownership must be explicit.", {
+      prBody: "# Why\n\nThe caller needs a clear ownership boundary.",
+    }).some((x) => x.includes("exactly match the commit body")),
+    true,
+  );
+  assertEquals(commitBody("Fix a leak"), "");
+  assertEquals(
+    commitBody("Fix a leak\n\nThe buffer ownership must be explicit.\n"),
+    "The buffer ownership must be explicit.",
+  );
 });
-Deno.test("issue actions prepare idempotent reference and closing footers", () => {
+Deno.test("issue actions require references in the commit body", () => {
   assertEquals(
-    preparePullRequestBody("Why this matters.", 42, "reference"),
-    "Why this matters.\n\nRefs #42",
-  );
-  assertEquals(
-    preparePullRequestBody("Why this matters.\n\nRefs #42", 42, "reference"),
-    "Why this matters.\n\nRefs #42",
-  );
-  assertEquals(
-    preparePullRequestBody("See #42", 42, "reference"),
+    preparePullRequestBody(
+      "",
+      42,
+      "reference",
+      "Fix a leak\n\nSee #42",
+    ),
     "See #42",
   );
   assertEquals(
-    preparePullRequestBody("Why this matters.", 42, "fixes"),
-    "Why this matters.\n\nFixes #42",
-  );
-  assertEquals(
-    preparePullRequestBody("Why this matters.\n\nCloses #42", 42, "fixes"),
-    "Why this matters.\n\nFixes #42",
-  );
-});
-
-Deno.test("fixes requires the canonical closing phrase", () => {
-  assertEquals(
-    checkCommit(
-      {
-        message: "Fix a leak",
-        issue: 42,
-        issueAction: "fixes",
-        prBody: "Refs #42",
-      },
-      PROFILES.mere,
-    ).some((x) => x.includes('must contain "Fixes #42"')),
-    true,
-  );
-  assertEquals(
-    checkCommit(
-      {
-        message: "Fix a leak",
-        issue: 42,
-        issueAction: "fixes",
-        prBody: "Fixes #42",
-      },
-      PROFILES.mere,
+    preparePullRequestBody(
+      "",
+      42,
+      "fixes",
+      "Fix a leak\n\nFixes #42",
     ),
-    [],
+    "Fixes #42",
+  );
+  assertThrows(
+    () => preparePullRequestBody("", 42, "fixes", "Fix a leak"),
+    Error,
+    "must contain",
+  );
+  assertThrows(
+    () =>
+      preparePullRequestBody("Wrong", 42, "reference", "Fix a leak\n\nSee #42"),
+    Error,
+    "exactly match",
   );
   assertEquals(IssueActionSchema.safeParse("fixes").success, true);
 });
 
-Deno.test("reference action refuses an existing closing phrase", () => {
+Deno.test("reference action rejects a closing reference", () => {
   assertThrows(
-    () => preparePullRequestBody("Fixes #42", 42, "reference"),
+    () =>
+      preparePullRequestBody("", 42, "reference", "Fix a leak\n\nFixes #42"),
     Error,
     "conflicts",
   );
@@ -175,24 +166,40 @@ Deno.test("reference action rejects a closing reference during commit checks", (
   assertEquals(
     checkCommit(
       {
-        message: "Fix a leak",
+        message: "Fix a leak\n\nFixes #42",
         issue: 42,
         issueAction: "reference",
         prBody: "Fixes #42",
       },
       PROFILES.mere,
-    ).some((x) => x.includes("use issueAction 'fixes'")),
+    ).some((x) => x.includes("commit body contains a closing reference")),
     true,
   );
 });
 
-Deno.test("an associated issue must be cited in the PR body", () => {
+Deno.test("reference mode rejects every closing reference", () => {
+  assertEquals(
+    v("mere", "Fix a leak\n\nFixes #42", {
+      prBody: "Fixes #42",
+    }).some((x) => x.includes("closing reference")),
+    true,
+  );
+  assertEquals(
+    v("mere", "Fix a leak\n\nFixes #42\n\nRefs #43", {
+      issue: 43,
+      prBody: "Fixes #42\n\nRefs #43",
+    }).some((x) => x.includes("closing reference")),
+    true,
+  );
+});
+
+Deno.test("an associated issue must be cited in the commit body", () => {
   const check = (prBody: string | undefined) =>
     v("mere", `Fix a leak\n\n${prBody ?? ""}`, { issue: 42, prBody });
   assertEquals(check("Refs #42"), []);
   assertEquals(check("Fixes #42").length, 1);
   assertEquals(check("Closes #42.").length, 1);
-  assertEquals(check("Fixes #420").length, 1);
+  assertEquals(check("Fixes #420").length, 2);
   assertEquals(check("No reference").length, 1);
   assertEquals(check(undefined).length, 1);
   assertEquals(check("").length, 1);

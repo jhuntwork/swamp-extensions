@@ -79,12 +79,11 @@ a disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
 supplies only `prModel` to the delivery workflow: a vault-backed `@jeremy/github-pr` instance bound to
 `jhuntwork/mere`.
 
-The delivery workflow takes `body` as an independently authored pull-request
-body. Use Markdown when it improves clarity. Explain why the change matters and
-avoid repeating what the commit subject and diff already make clear; the
-workflow preserves that prose rather than generating it. Set `issueAction` to
-`fixes` when the pull request should close the supplied issue; the default
-`reference` action never closes an issue.
+The delivery workflow derives the pull-request body from the commit message and
+requires an exact match, including an empty body. Put any review rationale in
+the commit body; do not pass a separate PR description. Set `issueAction` to
+`fixes` when the commit body contains `Fixes #N` and the pull request should
+close the supplied issue; the default `reference` action never closes an issue.
 
 The pull request is the review gate. The delivery workflow does not merge,
 release, administer the repository, or edit a pull request. It is deliberately
