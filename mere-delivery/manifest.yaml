@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-delivery"
-version: "2026.11.17.2"
+version: "2026.11.18.1"
 description: >-
   Commit and branch standards for Mere repositories, held as named profiles,
   plus the one workflow that derives an exact-match pull-request body from the

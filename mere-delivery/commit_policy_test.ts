@@ -61,6 +61,30 @@ Deno.test("mere: explaining a test is not a status claim", () => {
   );
 });
 
+Deno.test("mere: conventional-commit prefixes are refused", () => {
+  for (
+    const subject of [
+      "fix: keep the store lock held",
+      "Fix: keep the store lock held",
+      "feat(store)!: drop the legacy path",
+      "refactor(install): split admission",
+    ]
+  ) {
+    const violations = v("mere", subject);
+    assertEquals(
+      violations.some((item) => item.includes("conventional-commit")),
+      true,
+      subject,
+    );
+  }
+});
+
+Deno.test("mere: plain subjects that start with a type word are accepted", () => {
+  assertEquals(v("mere", "Fix the store lock held during admission"), []);
+  assertEquals(v("mere", "Fixes the store lock held during admission"), []);
+  assertEquals(v("mere", "Feature flags stay off by default"), []);
+});
+
 Deno.test("mere: trailers are refused", () => {
   assertEquals(
     v("mere", "Fix a leak\n\nWhy.\n\nCo-authored-by: A <a@b.c>").some((x) =>

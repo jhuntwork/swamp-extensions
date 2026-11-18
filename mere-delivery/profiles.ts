@@ -29,6 +29,7 @@ export const PROFILES: Record<ProfileName, Profile> = {
     noBodyPattern: "",
     forbidTrailers: true,
     forbidStatusClaims: true,
+    forbidConventionalPrefix: true,
     branchPattern: "^[a-z0-9][a-z0-9-]*$",
   },
   merelinux: {
@@ -41,6 +42,7 @@ export const PROFILES: Record<ProfileName, Profile> = {
     noBodyPattern: "",
     forbidTrailers: true,
     forbidStatusClaims: true,
+    forbidConventionalPrefix: true,
     branchPattern: "^[a-z0-9][a-z0-9._-]*$",
   },
 };
