@@ -89,7 +89,13 @@ Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery",
   assertEquals(text.includes("methodName: commit"), false);
   assertEquals(text.includes("methodName: push"), false);
   assertEquals(text.includes("changeKind"), true);
-  assertEquals(text.includes('inputs.changeKind != "version-release"'), true);
+  // A truthy swamp guard skips its step, so the review must be guarded by
+  // the version-release case; the inverse skipped every implementation review.
+  assertEquals(
+    text.includes('guard: ${{ inputs.changeKind == "version-release" }}'),
+    true,
+  );
+  assertEquals(text.includes('inputs.changeKind != "version-release"'), false);
   assertEquals(text.includes("reviewerModel: mere-adversarial-reviewer"), true);
   assertEquals(
     text.includes(
