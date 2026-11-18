@@ -39,6 +39,12 @@ inputs:
     noCache:
       type: boolean
       default: true
+    buildTimeoutMinutes:
+      type: integer
+      minimum: 1
+      maximum: 240
+      default: 60
+      description: Minutes before the build is stopped. Large recipes such as firefox need more than the default.
     reviewNotes:
       type: boolean
       default: true
@@ -252,6 +258,7 @@ jobs:
             recipe: ${{ inputs.recipe }}
             checkoutPath: ${{ data.latest(inputs.recipeBinding, "workspace").attributes.worktreePath }}
             noCache: ${{ inputs.noCache }}
+            timeoutMinutes: ${{ inputs.buildTimeoutMinutes }}
         dependsOn:
           - step: validate
             condition:
