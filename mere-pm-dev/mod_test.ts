@@ -103,6 +103,12 @@ Deno.test("packaged delivery workflow hands the commit and PR to mere-delivery",
     ),
     true,
   );
+  // The reviewer records its factory, workItem and artifact in the invocation
+  // content tags. Querying the swamp-level tags never matches, which made the
+  // assert fail even after a passing review.
+  assertEquals(text.includes("attributes.tags.workItem"), true);
+  assertEquals(text.includes("tags.workflowRunId"), false);
+  assertEquals(text.includes("size(data.query("), true);
 });
 
 function fakeContext(

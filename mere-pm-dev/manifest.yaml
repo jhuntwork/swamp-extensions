@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@jeremy/mere-pm-dev"
-version: "2026.11.18.1"
+version: "2026.11.18.2"
 description: >
   Build and validate the Mere package-manager source tree through fixed Zig
   commands run inside a @jeremy/mere-shell namespace, so no host Zig is needed,
