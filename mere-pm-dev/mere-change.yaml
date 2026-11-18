@@ -271,8 +271,9 @@ jobs:
           type: assert
           expr: >-
             inputs.changeKind == "version-release" ||
-            data.query('modelName == "mere-adversarial-reviewer" && specName == "invocation" && tags.workflowRunId == "' + run.id + '" && tags.artifact == "code-review"')[0].attributes.success == true &&
-            data.query('modelName == "mere-adversarial-reviewer" && specName == "invocation" && tags.workflowRunId == "' + run.id + '" && tags.artifact == "code-review"')[0].attributes.parsedResponse.verdict == "pass"
+            size(data.query('modelName == "mere-adversarial-reviewer" && specName == "invocation" && attributes.tags.workItem == "' + run.id + '" && attributes.tags.artifact == "code-review"')) > 0 &&
+            data.query('modelName == "mere-adversarial-reviewer" && specName == "invocation" && attributes.tags.workItem == "' + run.id + '" && attributes.tags.artifact == "code-review"')[0].attributes.success == true &&
+            data.query('modelName == "mere-adversarial-reviewer" && specName == "invocation" && attributes.tags.workItem == "' + run.id + '" && attributes.tags.artifact == "code-review"')[0].attributes.parsedResponse.verdict == "pass"
           message: Adversarial review found a P0/P1 defect, failed to produce a passing JSON verdict, or did not run.
           severity: high
       - name: deliver-change
