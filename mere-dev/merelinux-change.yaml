@@ -45,13 +45,19 @@ inputs:
     recipePath:
       type: string
       minLength: 1
-      pattern: '^recipes/[^/]+/[^/]+/recipe\\.kdl$'
+      pattern: '^recipes/[^/]+/[^/]+/recipe\.kdl$'
       description: Repository-relative recipe.kdl to validate and build.
     repository:
       type: string
       minLength: 1
       default: local
       description: Local development repository populated by the built outputs.
+    buildTimeoutMinutes:
+      type: integer
+      minimum: 1
+      maximum: 240
+      default: 60
+      description: Minutes before the build is stopped. Large recipes such as firefox need more than the default.
     packages:
       type: array
       minItems: 1
@@ -231,7 +237,8 @@ jobs:
           modelIdOrName: ${{ inputs.devModel }}
           methodName: validate
           inputs:
-            recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
+            recipe: ${{ inputs.recipePath.split("/")[1] + "/" + inputs.recipePath.split("/")[2] }}
+            checkoutPath: ${{ inputs.worktreePath }}
       - name: build-recipe
         dependsOn:
           - step: validate-recipe
@@ -242,7 +249,9 @@ jobs:
           modelIdOrName: ${{ inputs.devModel }}
           methodName: build
           inputs:
-            recipe: ${{ inputs.worktreePath + "/" + inputs.recipePath }}
+            recipe: ${{ inputs.recipePath.split("/")[1] + "/" + inputs.recipePath.split("/")[2] }}
+            checkoutPath: ${{ inputs.worktreePath }}
+            timeoutMinutes: ${{ inputs.buildTimeoutMinutes }}
       - name: import-outputs
         dependsOn:
           - step: build-recipe
