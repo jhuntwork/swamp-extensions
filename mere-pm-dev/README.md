@@ -65,19 +65,53 @@ This package distributes an explicit two-phase delivery path:
    supplied immutable `baseSha`, and stops. Implement the agreed scoped change
    in that isolated candidate.
 2. `@jeremy/mere-change` accepts that candidate, runs this model's format check,
-   full test, portable baseline build, and `describe` smoke profile, stages only
-   `allowedPaths`, pushes a non-force branch, and creates and verifies a
+   full test, portable baseline build, and `describe` smoke profile, then runs
+   an independent read-only adversarial review through
+   `mere-adversarial-reviewer`. Implementation changes must receive a passing
+   review before delivery; set `changeKind: version-release` only for a
+   version-release change that is intentionally exempt. The workflow stages
+   only `allowedPaths`, pushes a non-force branch, and creates and verifies a
    same-repository pull request.
+
+Before running `@jeremy/mere-change`, ensure the workspace has the dedicated
+reviewer behavior. If it does not exist, create it with `@mgreten/cli-agent`
+and configure an installed, authenticated provider:
+
+```sh
+swamp behavior create @mgreten/cli-agent mere-adversarial-reviewer \
+  --global-arg defaultProvider=claude \
+  --global-arg defaultModel=opus \
+  --global-arg defaultToolProfile=readonly \
+  --global-arg sandboxMode=auto \
+  --global-arg sandboxRequired=true \
+  --global-arg sandboxNetwork=deny
+```
+
+If the behavior already exists, edit it instead of creating a second instance.
+Use the same read-only tool profile and sandbox settings. For example:
+
+```sh
+swamp behavior edit mere-adversarial-reviewer
+```
+
+Use a provider and model available in the execution environment. The workflow
+never accepts an arbitrary reviewer binding, so callers cannot replace the
+read-only reviewer with an actor model through workflow inputs. The reviewer
+returns structured JSON and the workflow blocks delivery unless its verdict is
+`pass`.
 
 The separation is functional, not an approval pause: it gives implementation a
 real candidate worktree while keeping the delivery run bound to its validation,
 commit, push, evidence, and PR operations. `@jeremy/mere-change-prepare` has
 no commit, push, pull-request, or credential-bearing binding.
 
-Neither workflow carries credentials or local model instances. Each creates
-a disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
-supplies only `prModel` to the delivery workflow: a vault-backed `@jeremy/github-pr` instance bound to
-`jhuntwork/mere`.
+Neither workflow carries credentials or local validation model instances.
+`@jeremy/mere-change` does require the workspace's dedicated
+`mere-adversarial-reviewer` behavior, which must be configured as a read-only
+`@mgreten/cli-agent` instance before delivery. Each workflow creates a
+disposable `@jeremy/mere-pm-dev` validation model as needed. A workspace
+supplies only `prModel` to the delivery workflow: a vault-backed
+`@jeremy/github-pr` model bound to `jhuntwork/mere`.
 
 The delivery workflow derives the pull-request body from the commit message and
 requires an exact match, including an empty body. Put any review rationale in
