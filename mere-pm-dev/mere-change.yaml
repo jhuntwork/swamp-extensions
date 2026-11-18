@@ -230,7 +230,7 @@ jobs:
           - step: assert-smoke
             condition:
               type: succeeded
-        guard: ${{ inputs.changeKind != "version-release" }}
+        guard: ${{ inputs.changeKind == "version-release" }}
         task:
           type: workflow
           workflowIdOrName: "@atalanta/external-reviewer/external-review-findings"
