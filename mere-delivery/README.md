@@ -16,6 +16,7 @@ delivery that names the profile follows the new rule.
 | Bare subject required | None | None |
 | Trailers (`Co-authored-by`, ...) | Refused | Refused |
 | Status claims | Refused | Refused |
+| Conventional-commit prefixes (`fix:`, `feat(scope)!:`, ...) | Refused | Refused |
 | Branch name | lowercase words joined by `-` | lowercase, digits, `.`, `_`, `-` |
 
 Both profiles also require the pull request title to equal the commit subject.

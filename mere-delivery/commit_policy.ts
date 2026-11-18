@@ -11,6 +11,8 @@ export interface CommitRules {
   forbidTrailers: boolean;
   /** Refuse status claims such as "tests pass" that a pipeline reports better. */
   forbidStatusClaims: boolean;
+  /** Refuse conventional-commit type prefixes such as "fix:" or "feat(scope)!:". */
+  forbidConventionalPrefix: boolean;
   /** Regex the branch name must match; empty means no check. */
   branchPattern: string;
 }
@@ -38,6 +40,10 @@ export interface Expectations {
 
 const TRAILER =
   /^(co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|cc|change-id)\s*:/i;
+
+/** A conventional-commit type, optional scope, and optional breaking marker. */
+const CONVENTIONAL_PREFIX =
+  /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]*\))?!?:/i;
 
 /**
  * Claims that belong in the pipeline's results, not in a commit message. Each
@@ -168,6 +174,11 @@ export function checkCommit(
     );
   }
   if (subject.endsWith(".")) violations.push("the subject ends with a period");
+  if (rules.forbidConventionalPrefix && CONVENTIONAL_PREFIX.test(subject)) {
+    violations.push(
+      "the subject starts with a conventional-commit type prefix (fix:, feat:, ...); write the subject as a plain sentence",
+    );
+  }
   if (rules.subjectPattern) {
     if (!new RegExp(rules.subjectPattern).test(subject)) {
       violations.push(`the subject does not match ${rules.subjectPattern}`);
